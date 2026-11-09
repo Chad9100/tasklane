@@ -41,7 +41,7 @@ Completed tasks are moved by `archive` to `done.txt` in the same folder.
 | Command | What it does |
 | --- | --- |
 | `add TEXT` | Add a task; today's date is added as the creation date. `(A)` priority, `+project`, `@context` and `key:value` tags are kept. |
-| `ls [FILTER...]` | List open tasks. Terms are ANDed: `word`, `+project`, `@context`; `-term` excludes. `--all` includes done tasks, `--json` prints JSON. Sorted by priority, then due date, then line number. |
+| `ls [FILTER...]` | List open tasks. Terms are ANDed: `word`, `+project`, `@context`; `-term` excludes. `--all` includes done tasks and tasks with a future `t:` date, `--json` prints JSON. Sorted by priority, then due date, then line number. |
 | `do N...` | Mark tasks done. A task with `rec:` creates its next occurrence. |
 | `undo N` | Reopen a completed task (its priority is restored). |
 | `pri N A` / `depri N` | Set or remove a priority. |
@@ -180,6 +180,42 @@ a new `due:` date.
 Month and year steps clamp to the end of the month: `due:2027-01-31 rec:+1m`
 becomes `due:2027-02-28`. An unreadable `rec:` value prints a warning and the
 task is completed without a follow-up.
+
+### Threshold dates
+
+Add `t:YYYY-MM-DD` to a task you cannot or do not want to start yet. `ls`
+hides it until that day, says how many tasks are waiting, and `ls --all` shows
+them. A `t:` value that is not a valid date is ignored, so the task stays
+visible. With today being 2026-11-09:
+
+```text
+$ cat todo.txt
+(A) 2026-11-01 File quarterly taxes +money due:2026-11-15
+2026-11-02 Book ski trip +winter t:2026-12-01
+2026-11-03 Renew car insurance +money t:2026-11-09 due:2026-11-30
+2026-11-04 Order holiday cards +winter t:2026-11-25
+
+$ tasklane ls
+1 (A) 2026-11-01 File quarterly taxes +money due:2026-11-15
+3 2026-11-03 Renew car insurance +money t:2026-11-09 due:2026-11-30
+--
+2 of 4 tasks shown (2 hidden until their t: date; --all shows them)
+
+$ tasklane ls --all
+1 (A) 2026-11-01 File quarterly taxes +money due:2026-11-15
+3 2026-11-03 Renew car insurance +money t:2026-11-09 due:2026-11-30
+2 2026-11-02 Book ski trip +winter t:2026-12-01
+4 2026-11-04 Order holiday cards +winter t:2026-11-25
+--
+4 of 4 tasks shown
+
+$ tasklane ls +winter
+--
+0 of 4 tasks shown (2 hidden until their t: date; --all shows them)
+```
+
+`ls --json` includes a `threshold` field. `due`, `projects`, `contexts` and
+`report` still count deferred tasks, and the file itself is never changed.
 
 ## todo.txt compatibility
 

@@ -80,7 +80,7 @@ def test_ls_json_shape(run, sample):
     assert data[0]["projects"] == ["work"] and data[0]["contexts"] == ["desk"]
     assert data[0]["due"] == "2026-11-12"
     assert set(data[0]) == {"line", "raw", "done", "priority", "completion_date", "creation_date",
-                            "text", "projects", "contexts", "tags", "due"}
+                            "text", "projects", "contexts", "tags", "due", "threshold"}
 
 
 def test_do_marks_done_and_keeps_line_numbers(run, sample):
@@ -324,3 +324,48 @@ def test_ls_double_dash_allows_option_like_terms(run, todo):
     write(todo, "a -h b\nc\n")
     _, out, _ = run("ls", "--", "-h")
     assert out.splitlines()[0] == "2 c"
+
+
+THRESHOLD_SAMPLE = """2026-11-01 Book flights +trip t:2026-11-20
+(A) 2026-11-01 File taxes due:2026-11-15
+2026-11-02 Renew passport +trip t:2026-11-09
+x 2026-11-05 2026-11-01 Pack bags +trip
+2026-11-03 Unknown-ish line t:not-a-date
+"""
+
+
+def test_ls_hides_future_threshold_and_says_so(run, todo):
+    write(todo, THRESHOLD_SAMPLE)
+    code, out, _ = run("ls")
+    assert code == 0
+    assert out.splitlines() == [
+        "2 (A) 2026-11-01 File taxes due:2026-11-15",
+        "3 2026-11-02 Renew passport +trip t:2026-11-09",
+        "5 2026-11-03 Unknown-ish line t:not-a-date",
+        "--",
+        "3 of 4 tasks shown (1 hidden until their t: date; --all shows them)",
+    ]
+
+
+def test_ls_threshold_hint_respects_filters(run, todo):
+    write(todo, THRESHOLD_SAMPLE)
+    _, out, _ = run("ls", "taxes")
+    assert out.splitlines()[-1] == "1 of 4 tasks shown"
+
+
+def test_ls_all_shows_deferred_and_task_appears_on_its_day(run, todo):
+    write(todo, THRESHOLD_SAMPLE)
+    _, out, _ = run("ls", "--all", "+trip")
+    assert [l.split()[0] for l in out.splitlines()[:-2]] == ["1", "3", "4"]
+    _, out, _ = run("ls", "+trip", today=date(2026, 11, 20))
+    assert [l.split()[0] for l in out.splitlines()[:-2]] == ["1", "3"]
+    assert out.splitlines()[-1] == "2 of 4 tasks shown"
+
+
+def test_ls_json_threshold_and_file_untouched(run, todo):
+    write(todo, THRESHOLD_SAMPLE)
+    _, out, _ = run("ls", "--json", "--all", "flights")
+    assert json.loads(out)[0]["threshold"] == "2026-11-20"
+    _, out, _ = run("ls", "--json")
+    assert [row["line"] for row in json.loads(out)] == [2, 3, 5]
+    assert todo.read_text(encoding="utf-8") == THRESHOLD_SAMPLE

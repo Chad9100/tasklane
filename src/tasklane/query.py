@@ -37,8 +37,21 @@ def sort_key(item: Item) -> tuple:
     return (task.done, task.priority or _NO_PRIORITY, task.due or date.max, n)
 
 
-def filter_tasks(items: Iterable[Item], terms: Sequence[str] = (), include_done: bool = False) -> list[Item]:
-    chosen = [(n, t) for n, t in items if (include_done or not t.done) and matches(t, terms)]
+def filter_tasks(
+    items: Iterable[Item],
+    terms: Sequence[str] = (),
+    include_done: bool = False,
+    today: date | None = None,
+) -> list[Item]:
+    """Matching tasks, sorted. With *today*, tasks whose ``t:`` threshold date
+    is after *today* are left out unless *include_done* (``--all``) is set."""
+    chosen = [
+        (n, t)
+        for n, t in items
+        if (include_done or not t.done)
+        and (include_done or today is None or not t.deferred(today))
+        and matches(t, terms)
+    ]
     return sorted(chosen, key=sort_key)
 
 
@@ -88,4 +101,5 @@ def task_to_dict(n: int, task: Task, raw: str | None = None) -> dict:
         "contexts": task.contexts,
         "tags": task.tags,
         "due": task.due.isoformat() if task.due else None,
+        "threshold": task.threshold.isoformat() if task.threshold else None,
     }

@@ -141,3 +141,13 @@ def test_task_copy_is_independent():
     c = t.copy()
     c.text = "b"
     assert t.text == "a"
+
+
+def test_threshold_date_and_deferred():
+    task = parse_task("2026-11-01 Renew passport t:2026-12-01 due:2027-01-15")
+    assert task.threshold == date(2026, 12, 1)
+    assert task.deferred(date(2026, 11, 30))
+    assert not task.deferred(date(2026, 12, 1))  # visible from the threshold day on
+    assert not parse_task("x 2026-11-02 Done t:2099-01-01").deferred(date(2026, 11, 9))
+    assert parse_task("Bad t:2026-13-01").threshold is None
+    assert parse_task("Bad t:soon").threshold is None

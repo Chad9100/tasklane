@@ -87,6 +87,16 @@ class Task:
     def due(self) -> date | None:
         return parse_date(self.tags.get("due"))
 
+    @property
+    def threshold(self) -> date | None:
+        """The ``t:YYYY-MM-DD`` threshold (start) date, if valid."""
+        return parse_date(self.tags.get("t"))
+
+    def deferred(self, today: date) -> bool:
+        """True for an open task whose threshold date is still in the future."""
+        start = self.threshold
+        return not self.done and start is not None and start > today
+
     # -- mutation helpers ----------------------------------------------------
     def copy(self) -> Task:
         return dataclasses.replace(self)

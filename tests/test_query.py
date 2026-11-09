@@ -88,4 +88,23 @@ def test_task_to_dict_shape():
         "contexts": ["out"],
         "tags": {"due": "2026-11-20"},
         "due": "2026-11-20",
+        "threshold": None,
     }
+
+
+def test_threshold_hides_future_tasks_only_when_today_given():
+    rows = [
+        (1, parse_task("Later +home t:2026-11-10")),
+        (2, parse_task("Today +home t:2026-11-09")),
+        (3, parse_task("Past +home t:2026-11-01")),
+        (4, parse_task("Broken +home t:someday")),
+    ]
+    assert numbers(query.filter_tasks(rows, today=TODAY)) == [2, 3, 4]
+    assert numbers(query.filter_tasks(rows, include_done=True, today=TODAY)) == [1, 2, 3, 4]
+    assert numbers(query.filter_tasks(rows)) == [1, 2, 3, 4]
+
+
+def test_task_to_dict_has_threshold():
+    task = parse_task("Later t:2026-12-01")
+    assert query.task_to_dict(1, task)["threshold"] == "2026-12-01"
+    assert query.task_to_dict(1, parse_task("Now"))["threshold"] is None

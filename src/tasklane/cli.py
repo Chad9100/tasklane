@@ -125,7 +125,7 @@ def cmd_add(args, ctx: Context) -> int:
 def cmd_ls(args, ctx: Context) -> int:
     tf = ctx.load()
     every = tf.tasks()
-    shown = query.filter_tasks(every, args.terms, include_done=args.all)
+    shown = query.filter_tasks(every, args.terms, include_done=args.all, today=ctx.today)
     if args.json:
         _print_json([query.task_to_dict(n, t, tf.text(n)) for n, t in shown])
         return 0
@@ -134,7 +134,12 @@ def cmd_ls(args, ctx: Context) -> int:
         print(ctx.render(n, task, tf.text(n), width))
     total = len(every) if args.all else sum(1 for _, t in every if not t.done)
     print("--")
-    print(f"{len(shown)} of {total} tasks shown")
+    summary = f"{len(shown)} of {total} tasks shown"
+    if not args.all:
+        waiting = sum(1 for _, t in every if t.deferred(ctx.today) and query.matches(t, args.terms))
+        if waiting:
+            summary += f" ({waiting} hidden until their t: date; --all shows them)"
+    print(summary)
     return 0
 
 
@@ -353,10 +358,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = command("add", cmd_add, "add a task (creation date is added automatically)")
     p.add_argument("text", nargs="+", help='task text, e.g. "(A) Call mom +family due:2026-11-20"')
 
-    p = command("ls", cmd_ls, "list open tasks, optionally filtered")
+    p = command("ls", cmd_ls, "list open tasks, optionally filtered (tasks with a future t: date are hidden)")
     p.add_argument("terms", nargs="*", metavar="FILTER",
                    help="all must match: word, +project, @context; -term excludes")
-    p.add_argument("--all", action="store_true", help="include completed tasks")
+    p.add_argument("--all", action="store_true",
+                   help="include completed tasks and tasks whose t: threshold date is in the future")
     p.add_argument("--json", action="store_true", help="print JSON")
 
     p = command("do", cmd_do, "mark tasks as done (recurring tasks spawn their next occurrence)")
