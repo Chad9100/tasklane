@@ -74,3 +74,46 @@ def test_no_rec_tag_gives_none():
 def test_invalid_rec_raises():
     with pytest.raises(ValueError):
         next_task(parse_task("Bad rec:often"), TODAY)
+
+
+def test_threshold_keeps_its_gap_to_due_normal():
+    t = parse_task("Water plants t:2026-11-03 due:2026-11-05 rec:1w")
+    new = next_task(t, TODAY)
+    assert new.due == date(2026, 11, 16)
+    assert new.threshold == date(2026, 11, 14)
+    assert new.text == "Water plants t:2026-11-14 due:2026-11-16 rec:1w"
+
+
+def test_threshold_keeps_its_gap_to_due_strict_across_month_clamp():
+    t = parse_task("Invoice t:2027-01-24 due:2027-01-31 rec:+1m")
+    new = next_task(t, TODAY)
+    assert new.due == date(2027, 2, 28)
+    assert new.threshold == date(2027, 2, 21)
+
+
+def test_threshold_after_due_keeps_signed_gap():
+    t = parse_task("Odd t:2026-11-07 due:2026-11-05 rec:+1w")
+    new = next_task(t, TODAY)
+    assert (new.due, new.threshold) == (date(2026, 11, 12), date(2026, 11, 14))
+
+
+def test_threshold_without_due_moves_to_new_due():
+    t = parse_task("Weekly review t:2026-11-02 rec:1w")
+    new = next_task(t, TODAY)
+    assert new.text == "Weekly review t:2026-11-16 rec:1w due:2026-11-16"
+
+
+def test_invalid_threshold_is_copied_unchanged():
+    t = parse_task("Someday t:later due:2026-11-05 rec:1w")
+    assert next_task(t, TODAY).text == "Someday t:later due:2026-11-16 rec:1w"
+
+
+def test_only_first_threshold_moves_and_other_tags_survive():
+    t = parse_task("Plan t:2026-11-01 note:x t:2026-12-01 due:2026-11-08 rec:+1w")
+    assert next_task(t, TODAY).text == "Plan t:2026-11-08 note:x t:2026-12-01 due:2026-11-15 rec:+1w"
+
+
+def test_threshold_out_of_range_raises():
+    t = parse_task("Far t:9999-12-31 due:2026-11-01 rec:+1d")
+    with pytest.raises(ValueError):
+        next_task(t, TODAY)

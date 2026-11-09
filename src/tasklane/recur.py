@@ -5,6 +5,11 @@ was completed; strict recurrence (leading ``+``) schedules it relative to the
 task's current due date, so a late completion does not shift the schedule.
 Month and year steps clamp to the end of the target month (Jan 31 + 1m is
 Feb 28 or 29).
+
+A valid ``t:`` threshold date moves with the due date: the next occurrence
+keeps the same number of days between ``t:`` and ``due:``.  Without a valid
+due date the gap is taken as zero, so ``t:`` lands on the new due date.
+An unreadable ``t:`` value is copied unchanged.
 """
 
 from __future__ import annotations
@@ -69,5 +74,14 @@ def next_task(task: Task, today: date) -> Task | None:
         priority=task.priority,
         creation_date=today if task.creation_date else None,
     )
-    new.set_tag("due", advance(base, rule).isoformat())
+    new_due = advance(base, rule)
+    new.set_tag("due", new_due.isoformat())
+    start = task.threshold
+    if start is not None:
+        gap = (task.due - start) if task.due else timedelta(0)
+        try:
+            new_start = new_due - gap
+        except OverflowError:
+            raise ValueError("recurrence moves the t: date out of range") from None
+        new.set_tag("t", new_start.isoformat())
     return new

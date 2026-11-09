@@ -15,7 +15,7 @@ Estimates are focused working hours, including tests and docs.
 ## v0.2 - hidden and threshold dates (about 3 h)
 
 - [x] `t:YYYY-MM-DD` threshold dates: hide tasks from `ls` until that day, `--all` shows them (1.5 h)
-- [ ] Shift `t:` together with `due:` when a recurring task repeats (0.5 h)
+- [x] Shift `t:` together with `due:` when a recurring task repeats (0.5 h)
 - [ ] `h:1` hidden tasks, plus `ls --hidden` (1 h)
 
 ## v0.3 - shell completions (about 3 h)

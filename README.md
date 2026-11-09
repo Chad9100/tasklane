@@ -181,6 +181,28 @@ Month and year steps clamp to the end of the month: `due:2027-01-31 rec:+1m`
 becomes `due:2027-02-28`. An unreadable `rec:` value prints a warning and the
 task is completed without a follow-up.
 
+A [`t:` threshold date](#threshold-dates) moves along with `due:`: the next
+occurrence keeps the same number of days between the two, so a task that
+appears three days before it is due keeps doing so. Without a `due:` date the
+new `t:` is the new due date, and a `t:` value that is not a valid date is
+copied unchanged. With today being 2026-11-09:
+
+```text
+$ cat todo.txt
+2026-11-01 Change the water filter +home t:2026-11-06 due:2026-11-09 rec:+1w
+2026-11-02 Send timesheet +work t:2026-11-07 due:2026-11-07 rec:1w
+
+$ tasklane do 1 2
+Completed 1: x 2026-11-09 2026-11-01 Change the water filter +home t:2026-11-06 due:2026-11-09 rec:+1w
+Recurring: added 3: 2026-11-09 Change the water filter +home t:2026-11-13 due:2026-11-16 rec:+1w
+Completed 2: x 2026-11-09 2026-11-02 Send timesheet +work t:2026-11-07 due:2026-11-07 rec:1w
+Recurring: added 4: 2026-11-09 Send timesheet +work t:2026-11-16 due:2026-11-16 rec:1w
+
+$ tasklane ls
+--
+0 of 2 tasks shown (2 hidden until their t: date; --all shows them)
+```
+
 ### Threshold dates
 
 Add `t:YYYY-MM-DD` to a task you cannot or do not want to start yet. `ls`

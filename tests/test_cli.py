@@ -134,6 +134,20 @@ def test_do_recurring_month_end_clamp(run, todo):
     assert lines(todo)[1] == "Invoice due:2027-02-28 rec:+1m"
 
 
+def test_do_recurring_shifts_threshold_with_due(run, todo):
+    write(todo, "2026-11-01 Change filter +home t:2026-11-06 due:2026-11-09 rec:+1w\n")
+    code, out, _ = run("do", "1")
+    assert code == 0
+    assert "Recurring: added 2: 2026-11-09 Change filter +home t:2026-11-13 due:2026-11-16 rec:+1w" in out
+    assert lines(todo)[0] == "x 2026-11-09 2026-11-01 Change filter +home t:2026-11-06 due:2026-11-09 rec:+1w"
+    # the next occurrence stays out of ls until its shifted t: date
+    _, out, _ = run("ls")
+    assert "Change filter" not in out
+    assert "1 hidden until their t: date" in out
+    _, out, _ = run("ls", today=date(2026, 11, 13))
+    assert "2 2026-11-09 Change filter" in out
+
+
 def test_do_with_invalid_rec_warns_but_completes(run, todo):
     write(todo, "Odd rec:sometimes\n")
     code, _, err = run("do", "1")
