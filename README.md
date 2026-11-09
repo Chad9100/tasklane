@@ -41,7 +41,7 @@ Completed tasks are moved by `archive` to `done.txt` in the same folder.
 | Command | What it does |
 | --- | --- |
 | `add TEXT` | Add a task; today's date is added as the creation date. `(A)` priority, `+project`, `@context` and `key:value` tags are kept. |
-| `ls [FILTER...]` | List open tasks. Terms are ANDed: `word`, `+project`, `@context`; `-term` excludes. `--all` includes done tasks and tasks with a future `t:` date, `--json` prints JSON. Sorted by priority, then due date, then line number. |
+| `ls [FILTER...]` | List open tasks. Terms are ANDed: `word`, `+project`, `@context`; `-term` excludes. `--all` includes done tasks and tasks with a future `t:` date, `--hidden` includes `h:1` tasks, `--json` prints JSON. Sorted by priority, then due date, then line number. |
 | `do N...` | Mark tasks done. A task with `rec:` creates its next occurrence. |
 | `undo N` | Reopen a completed task (its priority is restored). |
 | `pri N A` / `depri N` | Set or remove a priority. |
@@ -238,6 +238,53 @@ $ tasklane ls +winter
 
 `ls --json` includes a `threshold` field. `due`, `projects`, `contexts` and
 `report` still count deferred tasks, and the file itself is never changed.
+
+### Hidden tasks
+
+A task tagged `h:1` is a placeholder: it keeps a `+project` or `@context`
+name in use (for `projects`, `contexts` and other todo.txt apps) without
+cluttering your list. `ls` never shows it, not even with `--all`, unless you
+pass `--hidden`; `due` and `report` leave it out. Any other value, such as
+`h:0`, does not hide the task. Real output from a throwaway file on 2026-11-09:
+
+```text
+$ cat todo.txt
+2026-11-01 Garden placeholder +garden @shed h:1
+(A) 2026-11-02 Prune the roses +garden due:2026-11-12
+2026-11-03 Plant tulip bulbs +garden @shed
+2026-11-03 Call plumber +house @phone
+2026-11-04 Someday: build a greenhouse +garden h:1
+
+$ tasklane ls
+2 (A) 2026-11-02 Prune the roses +garden due:2026-11-12
+3 2026-11-03 Plant tulip bulbs +garden @shed
+4 2026-11-03 Call plumber +house @phone
+--
+3 of 5 tasks shown (2 marked h:1; --hidden shows them)
+
+$ tasklane ls --hidden
+2 (A) 2026-11-02 Prune the roses +garden due:2026-11-12
+1 2026-11-01 Garden placeholder +garden @shed h:1
+3 2026-11-03 Plant tulip bulbs +garden @shed
+4 2026-11-03 Call plumber +house @phone
+5 2026-11-04 Someday: build a greenhouse +garden h:1
+--
+5 of 5 tasks shown
+
+$ tasklane contexts
+@phone
+@shed
+
+$ tasklane report
+PROJECT   OPEN   DONE
++garden      2      0
++house       1      0
+TOTAL        3      0
+```
+
+`ls --json` includes a `hidden` field (`true`/`false`). Hidden tasks can still
+be completed, edited and archived by number like any other task. The file
+itself is never changed by hiding.
 
 ## todo.txt compatibility
 

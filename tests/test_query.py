@@ -89,6 +89,7 @@ def test_task_to_dict_shape():
         "tags": {"due": "2026-11-20"},
         "due": "2026-11-20",
         "threshold": None,
+        "hidden": False,
     }
 
 
@@ -108,3 +109,23 @@ def test_task_to_dict_has_threshold():
     task = parse_task("Later t:2026-12-01")
     assert query.task_to_dict(1, task)["threshold"] == "2026-12-01"
     assert query.task_to_dict(1, parse_task("Now"))["threshold"] is None
+
+
+def test_hidden_tasks_left_out_unless_requested():
+    rows = [
+        (1, parse_task("Placeholder +home h:1")),
+        (2, parse_task("Visible +home")),
+        (3, parse_task("Not hidden h:0")),
+        (4, parse_task("Hidden and due h:1 due:2026-11-10")),
+    ]
+    assert numbers(query.filter_tasks(rows)) == [2, 3]
+    assert numbers(query.filter_tasks(rows, include_done=True)) == [2, 3]
+    assert numbers(query.filter_tasks(rows, include_hidden=True)) == [4, 1, 2, 3]
+    assert query.due_soon(rows, TODAY) == []
+
+
+def test_report_skips_hidden_tasks():
+    data = query.report([parse_task("Placeholder +garden h:1"), parse_task("Dig +garden")],
+                        [parse_task("x Old +garden h:1")])
+    assert data["total"] == {"open": 1, "done": 0}
+    assert data["projects"] == [{"project": "garden", "open": 1, "done": 0}]

@@ -92,6 +92,11 @@ class Task:
         """The ``t:YYYY-MM-DD`` threshold (start) date, if valid."""
         return parse_date(self.tags.get("t"))
 
+    @property
+    def hidden(self) -> bool:
+        """True for an ``h:1`` task (a placeholder kept out of normal listings)."""
+        return self.tags.get("h") == "1"
+
     def deferred(self, today: date) -> bool:
         """True for an open task whose threshold date is still in the future."""
         start = self.threshold

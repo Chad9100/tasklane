@@ -80,7 +80,7 @@ def test_ls_json_shape(run, sample):
     assert data[0]["projects"] == ["work"] and data[0]["contexts"] == ["desk"]
     assert data[0]["due"] == "2026-11-12"
     assert set(data[0]) == {"line", "raw", "done", "priority", "completion_date", "creation_date",
-                            "text", "projects", "contexts", "tags", "due", "threshold"}
+                            "text", "projects", "contexts", "tags", "due", "threshold", "hidden"}
 
 
 def test_do_marks_done_and_keeps_line_numbers(run, sample):
@@ -383,3 +383,68 @@ def test_ls_json_threshold_and_file_untouched(run, todo):
     _, out, _ = run("ls", "--json")
     assert [row["line"] for row in json.loads(out)] == [2, 3, 5]
     assert todo.read_text(encoding="utf-8") == THRESHOLD_SAMPLE
+
+
+HIDDEN_SAMPLE = """2026-11-01 Placeholder +garden @shed h:1
+(A) 2026-11-02 Prune roses +garden due:2026-11-10
+2026-11-03 Secret project idea +garden h:1 due:2026-11-09
+x 2026-11-05 2026-11-01 Old placeholder +garden h:1
+2026-11-04 Not hidden +garden h:0
+2026-11-04 Deferred placeholder +garden h:1 t:2026-12-01
+"""
+
+
+def test_ls_hides_h1_tasks_and_says_so(run, todo):
+    write(todo, HIDDEN_SAMPLE)
+    code, out, _ = run("ls")
+    assert code == 0
+    assert out.splitlines() == [
+        "2 (A) 2026-11-02 Prune roses +garden due:2026-11-10",
+        "5 2026-11-04 Not hidden +garden h:0",
+        "--",
+        "2 of 5 tasks shown (3 marked h:1; --hidden shows them)",
+    ]
+
+
+def test_ls_hidden_flag_shows_them(run, todo):
+    write(todo, HIDDEN_SAMPLE)
+    _, out, _ = run("ls", "--hidden")
+    assert [l.split()[0] for l in out.splitlines()[:-2]] == ["2", "3", "1", "5"]
+    assert out.splitlines()[-1] == "4 of 5 tasks shown (1 hidden until their t: date; --all shows them)"
+    _, out, _ = run("ls", "--hidden", "--all")
+    assert [l.split()[0] for l in out.splitlines()[:-2]] == ["2", "3", "1", "5", "6", "4"]
+    assert out.splitlines()[-1] == "6 of 6 tasks shown"
+
+
+def test_ls_all_without_hidden_still_hides_h1(run, todo):
+    write(todo, HIDDEN_SAMPLE)
+    _, out, _ = run("ls", "--all")
+    assert [l.split()[0] for l in out.splitlines()[:-2]] == ["2", "5"]
+    assert out.splitlines()[-1] == "2 of 6 tasks shown (4 marked h:1; --hidden shows them)"
+
+
+def test_ls_hidden_hint_respects_filters(run, todo):
+    write(todo, HIDDEN_SAMPLE)
+    _, out, _ = run("ls", "roses")
+    assert out.splitlines()[-1] == "1 of 5 tasks shown"
+    _, out, _ = run("ls", "secret")
+    assert out.splitlines()[-1] == "0 of 5 tasks shown (1 marked h:1; --hidden shows them)"
+
+
+def test_hidden_tasks_skip_due_and_report_but_keep_names(run, todo):
+    write(todo, HIDDEN_SAMPLE)
+    _, out, _ = run("due")
+    assert out.splitlines() == ["2 (A) 2026-11-02 Prune roses +garden due:2026-11-10  [due in 1d]"]
+    data = json.loads(run("report", "--json")[1])
+    assert data["total"] == {"open": 2, "done": 0}
+    assert run("contexts")[1] == "@shed\n"
+    assert run("projects")[1] == "+garden\n"
+
+
+def test_hidden_json_field_and_file_untouched(run, todo):
+    write(todo, HIDDEN_SAMPLE)
+    rows = json.loads(run("ls", "--json", "--hidden")[1])
+    assert {r["line"]: r["hidden"] for r in rows} == {1: True, 2: False, 3: True, 5: False}
+    run("do", "1")
+    assert lines(todo)[0] == "x 2026-11-09 2026-11-01 Placeholder +garden @shed h:1"
+    assert lines(todo)[1:] == HIDDEN_SAMPLE.splitlines()[1:]

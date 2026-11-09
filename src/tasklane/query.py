@@ -42,13 +42,16 @@ def filter_tasks(
     terms: Sequence[str] = (),
     include_done: bool = False,
     today: date | None = None,
+    include_hidden: bool = False,
 ) -> list[Item]:
     """Matching tasks, sorted. With *today*, tasks whose ``t:`` threshold date
-    is after *today* are left out unless *include_done* (``--all``) is set."""
+    is after *today* are left out unless *include_done* (``--all``) is set.
+    ``h:1`` tasks are left out unless *include_hidden* (``--hidden``) is set."""
     chosen = [
         (n, t)
         for n, t in items
-        if (include_done or not t.done)
+        if (include_hidden or not t.hidden)
+        and (include_done or not t.done)
         and (include_done or today is None or not t.deferred(today))
         and matches(t, terms)
     ]
@@ -58,7 +61,11 @@ def filter_tasks(
 def due_soon(items: Iterable[Item], today: date, days: int = 7) -> list[Item]:
     """Open tasks that are overdue or due within *days* days, earliest first."""
     limit = today + timedelta(days=days)
-    chosen = [(n, t) for n, t in items if not t.done and t.due is not None and t.due <= limit]
+    chosen = [
+        (n, t)
+        for n, t in items
+        if not t.done and not t.hidden and t.due is not None and t.due <= limit
+    ]
     return sorted(chosen, key=lambda it: (it[1].due, it[1].priority or _NO_PRIORITY, it[0]))
 
 
@@ -73,11 +80,14 @@ NO_PROJECT = "(none)"
 
 
 def report(open_tasks: Iterable[Task], done_tasks: Iterable[Task]) -> dict:
-    """Open/done counts per project. A task with several projects counts in each."""
+    """Open/done counts per project. A task with several projects counts in each.
+    ``h:1`` placeholder tasks are not counted."""
     rows: dict[str, dict[str, int]] = {}
     totals = {"open": 0, "done": 0}
     for key, tasks in (("open", open_tasks), ("done", done_tasks)):
         for task in tasks:
+            if task.hidden:
+                continue
             totals[key] += 1
             for project in task.projects or [NO_PROJECT]:
                 rows.setdefault(project, {"open": 0, "done": 0})[key] += 1
@@ -102,4 +112,5 @@ def task_to_dict(n: int, task: Task, raw: str | None = None) -> dict:
         "tags": task.tags,
         "due": task.due.isoformat() if task.due else None,
         "threshold": task.threshold.isoformat() if task.threshold else None,
+        "hidden": task.hidden,
     }

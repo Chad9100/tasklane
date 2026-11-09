@@ -151,3 +151,12 @@ def test_threshold_date_and_deferred():
     assert not parse_task("x 2026-11-02 Done t:2099-01-01").deferred(date(2026, 11, 9))
     assert parse_task("Bad t:2026-13-01").threshold is None
     assert parse_task("Bad t:soon").threshold is None
+
+
+def test_hidden_flag_needs_exactly_h1():
+    assert parse_task("Placeholder +garden h:1").hidden
+    assert parse_task("x 2026-11-02 Done placeholder h:1").hidden
+    assert not parse_task("Shown h:0").hidden
+    assert not parse_task("Shown h:yes").hidden
+    assert not parse_task("Shown with no tag").hidden
+    assert not parse_task("Shown, url https://h:1").hidden
