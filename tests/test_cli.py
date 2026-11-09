@@ -1,10 +1,19 @@
 import json
 from datetime import date
+from pathlib import Path
 
 import pytest
 
 from tasklane.cli import main, resolve_path, use_color
-from tests.conftest import TODAY, write
+
+# Kept in step with conftest.py. Defined here rather than imported from it:
+# conftest isn't an importable module when pytest runs as plain `pytest`
+# (as CI does), only with `python -m pytest` from the project folder.
+TODAY = date(2026, 11, 9)
+
+
+def write(path: Path, text: str, newline: str = "\n") -> None:
+    path.write_bytes(text.replace("\n", newline).encode("utf-8"))
 
 SAMPLE = """(B) 2026-11-01 Write report +work @desk due:2026-11-12
 2026-11-02 Buy milk +home @shop
