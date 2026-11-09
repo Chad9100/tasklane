@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tasklane"
+version = "0.1.0"
+description = "A todo.txt task manager for the command line: filters, due dates, recurring tasks, archive."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Chad Mowlavie" }]
+requires-python = ">=3.10"
+keywords = ["todo.txt", "todo", "tasks", "cli", "productivity"]
+classifiers = [
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Scheduling",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+tasklane = "tasklane.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Chad9100/tasklane"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
