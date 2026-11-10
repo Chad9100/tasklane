@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from . import __version__, completion, ical, query, recur
+from . import __version__, completion, ical, merge, query, recur
 from .storage import FileChangedError, TaskIndexError, TodoFile, atomic_write, done_path_for
 from .todo import Task, parse_task
 
@@ -508,6 +508,9 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
         return 1
     except FileChangedError as exc:
         print(f"tasklane: error: {exc}", file=sys.stderr)
+        for conflict in exc.conflicts:
+            for line in merge.describe_conflict(conflict):
+                print(f"tasklane: {line}", file=sys.stderr)
         print("tasklane: the other program's version (an editor, a sync client) was kept;"
               " run the command again to apply it to the new contents", file=sys.stderr)
         return 1

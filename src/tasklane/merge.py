@@ -211,6 +211,62 @@ def merge_task_line(base: str, ours: str, theirs: str) -> str | None:
     return format_task(task)
 
 
+_FIELD_NAMES = ("done state", "completion date", "priority", "creation date")
+
+
+def clashing_fields(base: str, ours: str, theirs: str) -> list[str]:
+    """Name what both sides changed differently in one task line, for a
+    conflict report: some of ``done state``, ``completion date``,
+    ``priority``, ``creation date`` and ``description``, or ``removed`` when
+    one side blanked the task."""
+    lines = (base, ours, theirs)
+    if any(not line.strip() for line in lines):
+        return ["removed"] if base.strip() else []
+    b, o, t = (_fields(parse_task(line)) for line in lines)
+    names = [name for name, *f in zip(_FIELD_NAMES, b[:4], o[:4], t[:4]) if _field(*f) is _NO_MERGE]
+    if not merge3(b[4], o[4], t[4], insert_both_at_end_only=True).clean:
+        names.append("description")
+    return names
+
+
+def _text(line) -> str:
+    if isinstance(line, bytes):
+        line = line.decode("utf-8", "replace")
+    return line.rstrip("\r\n")
+
+
+def describe_conflict(conflict: Conflict) -> list[str]:
+    """A readable report of one conflict: where it is (base line numbers,
+    i.e. the numbers tasklane showed), what clashed, and the lines as they
+    were, as tasklane wanted them and as they are on disk now."""
+    base, ours, theirs = ([_text(x) for x in side] for side in (conflict.base, conflict.ours, conflict.theirs))
+    if conflict.start == conflict.end:
+        where = f"after line {conflict.start}" if conflict.start else "at the top"
+        report = [f"conflict {where}: both sides added different lines here"]
+        sides = (("wanted", ours), ("on disk", theirs))
+    else:
+        first, last = conflict.start + 1, conflict.end
+        where = f"line {first}" if first == last else f"lines {first}-{last}"
+        what = ""
+        if len(base) == len(ours) == len(theirs):
+            names: list[str] = []
+            for b, o, t in zip(base, ours, theirs):
+                if o != t and o != b and t != b:
+                    names += [n for n in clashing_fields(b, o, t) if n not in names]
+            if "removed" in names:
+                what = " (one side removed a task the other changed)"
+            elif names:
+                what = f" (both changed the {', '.join(names)})"
+        elif not ours or not theirs:
+            what = " (one side removed lines the other changed)"
+        report = [f"conflict in {where}{what}:"]
+        sides = (("was", base), ("wanted", ours), ("on disk", theirs))
+    for label, side in sides:
+        for line in side or ["(nothing)"]:
+            report.append(f"  {label + ':':<10}{line if line.strip() else '(blank line)'}")
+    return report
+
+
 def _merge_task_bytes(base: bytes, ours: bytes, theirs: bytes) -> bytes | None:
     ending = _ending(ours)
     try:

@@ -535,8 +535,25 @@ one side removing a task the other edited), or the file was deleted or created
 by someone else, does tasklane write nothing: it keeps the
 other program's version and exits with code `1` with
 `tasklane: error: todo.txt was changed on disk (...) in the same lines since
-tasklane read it; nothing was written`, followed by a hint to run the command
-again. `archive` merges before it touches `done.txt`, so a conflict changes
+tasklane read it; nothing was written`, then a report of each conflict and a
+hint to run the command again. The report names the clashing fields and
+shows the lines as they were when tasklane read the file (`was`, with those
+line numbers), as tasklane wanted to write them (`wanted`) and as they are on
+disk now. Real output from 2026-11-10, where a phone app completed task 2 on
+another day while `tasklane do 2` ran (simulated with a script that rewrites
+the file right after tasklane reads it; the modification time is elided):
+
+```console
+$ tasklane do 2
+tasklane: error: todo.txt was changed on disk (modified ...) in the same lines since tasklane read it; nothing was written
+tasklane: conflict in line 2 (both changed the completion date):
+tasklane:   was:      2026-11-02 Buy milk +home @shop
+tasklane:   wanted:   x 2026-11-10 2026-11-02 Buy milk +home @shop
+tasklane:   on disk:  x 2026-11-08 2026-11-02 Buy milk +home @shop
+tasklane: the other program's version (an editor, a sync client) was kept; run the command again to apply it to the new contents
+```
+
+`archive` merges before it touches `done.txt`, so a conflict changes
 neither file. A sync client that only touches the file (new modification
 time, same bytes) is not a change at all.
 
@@ -573,8 +590,10 @@ A conflicting `save()` raises `FileChangedError`; its `conflicts` list holds
 each overlapping region as base, ours and theirs lines. The merge itself is
 `tasklane.merge.merge3`, which works on any sequences of lines, and
 `tasklane.merge.merge_task_line(base, ours, theirs)` merges one task field by
-field (it returns `None` on a conflict). A readable conflict report and a
-`--force` option are planned (see the roadmap).
+field (it returns `None` on a conflict). `tasklane.merge.describe_conflict`
+turns one conflict into the report lines shown above, and
+`clashing_fields(base, ours, theirs)` names what two edits of a task both
+changed. A `--force` option to overwrite anyway is planned (see the roadmap).
 
 ## todo.txt compatibility
 

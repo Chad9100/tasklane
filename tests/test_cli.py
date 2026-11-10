@@ -477,6 +477,13 @@ def test_do_refuses_to_overwrite_a_concurrent_edit(run, sample, edited_after_loa
     assert code == 1
     assert "todo.txt was changed on disk" in err
     assert "run the command again" in err
+    report = [line for line in err.splitlines() if "conflict" in line or ":  " in line]
+    assert report == [
+        "tasklane: conflict in line 2 (both changed the completion date):",
+        "tasklane:   was:      2026-11-02 Buy milk +home @shop",
+        "tasklane:   wanted:   x 2026-11-09 2026-11-02 Buy milk +home @shop",
+        "tasklane:   on disk:  x 2026-11-08 2026-11-02 Buy milk +home @shop",
+    ]
     assert sample.read_bytes() == synced
 
 

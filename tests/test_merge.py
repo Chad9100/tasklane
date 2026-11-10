@@ -6,7 +6,15 @@ import pytest
 
 from tasklane import storage
 from tasklane.cli import main
-from tasklane.merge import join_merged, merge3, merge_bytes, merge_task_line
+from tasklane.merge import (
+    Conflict,
+    clashing_fields,
+    describe_conflict,
+    join_merged,
+    merge3,
+    merge_bytes,
+    merge_task_line,
+)
 from tasklane.storage import TodoFile
 from tasklane.todo import parse_task
 
@@ -177,6 +185,68 @@ def test_conflicting_save_writes_nothing(tmp_path):
     with pytest.raises(storage.FileChangedError, match="in the same lines"):
         tf.save()
     assert path.read_bytes() == b"(B) one\n"
+
+
+# -- conflict report ---------------------------------------------------------
+@pytest.mark.parametrize(
+    "base, ours, theirs, expected",
+    [
+        ("(B) task", "(A) task", "(C) task", ["priority"]),
+        ("task", "x 2026-11-09 task", "x 2026-11-08 task", ["completion date"]),
+        ("buy milk", "buy oat milk", "buy soy milk", ["description"]),
+        ("(B) buy milk", "(A) buy oat milk", "(C) buy soy milk", ["priority", "description"]),
+        ("task", "", "(A) task", ["removed"]),
+        ("(B) task", "(A) task  extra", "(C) task", ["priority"]),
+    ],
+)
+def test_clashing_fields_names_what_both_changed(base, ours, theirs, expected):
+    assert clashing_fields(base, ours, theirs) == expected
+
+
+def test_report_for_a_save_conflict_shows_all_three_versions(tmp_path):
+    path = tmp_path / "todo.txt"
+    path.write_bytes(b"first\r\n(B) 2026-11-02 Buy milk\r\nlast\r\n")
+    tf = TodoFile.load(path)
+    tf.set(2, parse_task("(A) 2026-11-02 Buy milk"))
+    path.write_bytes(b"first\r\n(C) 2026-11-02 Buy milk\r\nlast\r\n")
+    with pytest.raises(storage.FileChangedError) as info:
+        tf.save()
+    [conflict] = info.value.conflicts
+    assert describe_conflict(conflict) == [
+        "conflict in line 2 (both changed the priority):",
+        "  was:      (B) 2026-11-02 Buy milk",
+        "  wanted:   (A) 2026-11-02 Buy milk",
+        "  on disk:  (C) 2026-11-02 Buy milk",
+    ]
+
+
+def test_report_for_a_removed_task_and_for_insertions():
+    removed = Conflict(0, 1, [b"task\n"], [b"\n"], [b"(A) task\n"])
+    assert describe_conflict(removed) == [
+        "conflict in line 1 (one side removed a task the other changed):",
+        "  was:      task",
+        "  wanted:   (blank line)",
+        "  on disk:  (A) task",
+    ]
+    added = Conflict(2, 2, [], ["new a"], ["new b"])
+    assert describe_conflict(added) == [
+        "conflict after line 2: both sides added different lines here",
+        "  wanted:   new a",
+        "  on disk:  new b",
+    ]
+    assert describe_conflict(Conflict(0, 0, [], ["a"], ["b"]))[0].startswith("conflict at the top:")
+
+
+def test_report_for_lines_one_side_deleted():
+    gone = Conflict(1, 3, ["b", "c"], ["B", "c"], [])
+    assert describe_conflict(gone) == [
+        "conflict in lines 2-3 (one side removed lines the other changed):",
+        "  was:      b",
+        "  was:      c",
+        "  wanted:   B",
+        "  wanted:   c",
+        "  on disk:  (nothing)",
+    ]
 
 
 # -- command line ------------------------------------------------------------

@@ -28,7 +28,8 @@ Estimates are focused working hours, including tests and docs.
 - [x] Detect that the file changed on disk between load and save (content hash, mtime reported) and refuse to overwrite it (1 h)
 - [x] Three-way merge of changes to different lines on save, with moved task numbers reported (1.5 h)
 - [x] Merge two edits of the same task that touch different fields, e.g. one side completes it and the other changes its priority (1.5 h)
-- [ ] Clear conflict report and a `--force` escape hatch; tests with simulated Dropbox/Syncthing edits (2 h)
+- [x] Clear conflict report: the clashing fields plus the lines as they were, as tasklane wanted them and as they are on disk (1 h; first half of a 2 h item, split)
+- [ ] `--force` escape hatch (keeping a backup of the other version); tests with simulated Dropbox/Syncthing edits (1 h; second half)
 
 ## v0.5 - calendar export (about 3 h)
 
