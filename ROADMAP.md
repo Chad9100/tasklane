@@ -40,9 +40,10 @@ Estimates are focused working hours, including tests and docs.
 
 ## v0.6 - interactive TUI (about 8 h)
 
-- [ ] Full-screen list built on `curses` (Windows via `windows-curses` extra) with live filtering (4 h)
+- [x] Read-only full-screen list built on `curses` with live filtering and an injectable screen for tests (1.5 h; first part of the 4 h item, split)
+- [ ] Windows `windows-curses` extra in `pyproject.toml` and colors in the list (1 h; second part)
 - [ ] Keyboard actions: add, do, undo, priority, edit, archive (3 h)
-- [ ] Respect `NO_COLOR` and small terminals (1 h)
+- [ ] Respect `NO_COLOR` for list colors and test on real terminals (0.5 h)
 
 ## v1.0 - PyPI release (about 2 h)
 

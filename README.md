@@ -52,6 +52,7 @@ Completed tasks are moved by `archive` to `done.txt` in the same folder.
 | `projects` / `contexts` | List the `+projects` / `@contexts` in use. |
 | `report` | Open/done counts per project (done includes `done.txt`). `--json` available. |
 | `export --ics [FILTER...]` | Write open tasks as iCalendar `VTODO` entries for calendar and task apps; `-o FILE` writes a file, `--all` adds done tasks, `--hidden` adds `h:1` tasks (see [Calendar export](#calendar-export)). |
+| `tui` | Browse open tasks in a read-only full-screen list with live filtering (see [Full-screen list](#full-screen-list)). |
 | `completion SHELL` | Print a completion script for `bash`, `zsh`, `fish` or `powershell` (see [Shell completion](#shell-completion)). |
 
 The number in front of each task is its line in `todo.txt`. Numbers stay the
@@ -406,6 +407,24 @@ STATUS:NEEDS-ACTION
 END:VTODO
 END:VCALENDAR
 ```
+
+### Full-screen list
+
+`tasklane tui` opens a read-only full-screen list of the open tasks. It needs
+Python's `curses` module and a real terminal; on Windows install
+`pip install windows-curses` first. Without curses the command stops with an
+error and `tasklane ls` still works. The list uses no colors, so `NO_COLOR` is
+respected, and shows "Terminal too small" in very small windows.
+
+| Key | Action |
+| --- | --- |
+| `j` / `k`, arrows | Move the selection |
+| PageUp / PageDown, `g` / `G` | Jump a page, to the top, to the bottom |
+| `/` | Filter as you type (same terms as `ls`); Enter keeps it, Esc clears it |
+| `a` | Toggle between open and all tasks |
+| `q` | Quit |
+
+Adding, completing and editing tasks from the list is planned (see the roadmap).
 
 ### Shell completion
 
