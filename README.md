@@ -51,6 +51,7 @@ Completed tasks are moved by `archive` to `done.txt` in the same folder.
 | `due [--days N]` | Overdue tasks plus tasks due within N days (default 7). `--json` available. |
 | `projects` / `contexts` | List the `+projects` / `@contexts` in use. |
 | `report` | Open/done counts per project (done includes `done.txt`). `--json` available. |
+| `completion SHELL` | Print a completion script for `bash`, `zsh`, `fish` or `powershell` (see [Shell completion](#shell-completion)). |
 
 The number in front of each task is its line in `todo.txt`. Numbers stay the
 same through `add`, `do`, `rm` and edits; only `archive` renumbers.
@@ -286,6 +287,57 @@ TOTAL        3      0
 be completed, edited and archived by number like any other task. The file
 itself is never changed by hiding.
 
+### Shell completion
+
+`tasklane completion SHELL` prints a completion script for commands, options,
+`--color` values, the shell names of `completion` itself, and file paths after
+`--file`. The script is generated from the CLI's own argument parser, so it
+always matches the installed version. Load it from your shell's startup file:
+
+```sh
+# ~/.bashrc
+eval "$(tasklane completion bash)"
+
+# ~/.zshrc (after compinit)
+eval "$(tasklane completion zsh)"
+
+# fish
+tasklane completion fish > ~/.config/fish/completions/tasklane.fish
+```
+
+```powershell
+# $PROFILE
+tasklane completion powershell | Out-String | Invoke-Expression
+```
+
+Real output on 2026-11-09, with `TASKLANE_FILE` pointing at a throwaway
+`todo.txt` in a temporary folder. In bash, calling the completion function
+the way the shell does on <kbd>Tab</kbd>:
+
+```text
+$ eval "$(tasklane completion bash)"
+$ complete -p tasklane
+complete -F _tasklane_complete tasklane
+tasklane r<TAB>  ->  rm report
+tasklane due --<TAB>  ->  --help --file --color --days --json
+tasklane --file to<TAB>  ->  todo.txt
+```
+
+In Windows PowerShell 5.1, through `TabExpansion2` (what <kbd>Tab</kbd> uses):
+
+```text
+PS> TabExpansion2 'tasklane d'  ->  do depri due
+PS> TabExpansion2 'tasklane ls --h'  ->  --help --hidden
+PS> TabExpansion2 'tasklane --color '  ->  auto always never
+PS> TabExpansion2 'tasklane completion '  ->  bash zsh fish powershell
+```
+
+The bash and PowerShell scripts are exercised by the test suite in real
+shells; the zsh and fish scripts are syntax-checked in CI on Ubuntu. Windows
+PowerShell 5.1 does not call completers for a bare `--`, so type one letter
+after it (`--h`). Task text, numbers, `+project` and `@context` names are not
+completed yet (see the roadmap).
+
 ## todo.txt compatibility
 
 * Lines are parsed per the spec: `x` + space marks completion, followed by an
@@ -326,6 +378,7 @@ Layout:
 * `src/tasklane/storage.py` loads files losslessly and writes them atomically.
 * `src/tasklane/recur.py` handles `rec:` rules and month arithmetic.
 * `src/tasklane/query.py` does filtering, sorting, due views and reports.
+* `src/tasklane/completion.py` generates shell completion scripts from the parser.
 * `src/tasklane/cli.py` is the argparse front end; `main(argv, today=...)`
   accepts an injected date for tests.
 

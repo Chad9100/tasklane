@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from . import __version__, query, recur
+from . import __version__, completion, query, recur
 from .storage import TaskIndexError, TodoFile, done_path_for
 from .todo import Task, parse_task
 
@@ -346,6 +346,11 @@ def cmd_report(args, ctx: Context) -> int:
     return 0
 
 
+def cmd_completion(args, ctx: Context) -> int:
+    sys.stdout.write(completion.script(args.shell, build_parser()))
+    return 0
+
+
 # -- parser ------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     def add_common(p: argparse.ArgumentParser, default) -> None:
@@ -415,6 +420,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = command("report", cmd_report, "open/done counts per project (done includes done.txt)")
     p.add_argument("--json", action="store_true", help="print JSON")
+
+    p = command("completion", cmd_completion, "print a shell completion script (bash, zsh, fish, powershell)")
+    p.add_argument("shell", choices=completion.SHELLS)
     return parser
 
 
