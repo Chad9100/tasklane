@@ -52,7 +52,7 @@ Completed tasks are moved by `archive` to `done.txt` in the same folder.
 | `projects` / `contexts` | List the `+projects` / `@contexts` in use. |
 | `report` | Open/done counts per project (done includes `done.txt`). `--json` available. |
 | `export --ics [FILTER...]` | Write open tasks as iCalendar `VTODO` entries for calendar and task apps; `-o FILE` writes a file, `--all` adds done tasks, `--hidden` adds `h:1` tasks (see [Calendar export](#calendar-export)). |
-| `tui` | Browse open tasks in a read-only full-screen list with live filtering (see [Full-screen list](#full-screen-list)). |
+| `tui` | Browse and change tasks in a full-screen list with live filtering (see [Full-screen list](#full-screen-list)). |
 | `completion SHELL` | Print a completion script for `bash`, `zsh`, `fish` or `powershell` (see [Shell completion](#shell-completion)). |
 
 The number in front of each task is its line in `todo.txt`. Numbers stay the
@@ -410,11 +410,17 @@ END:VCALENDAR
 
 ### Full-screen list
 
-`tasklane tui` opens a read-only full-screen list of the open tasks. It needs
+`tasklane tui` opens a full-screen list of the open tasks, where you can also
+complete, reopen, prioritise and add tasks. It needs
 Python's `curses` module and a real terminal; on Windows install
 `pip install windows-curses` first. Without curses the command stops with an
 error and `tasklane ls` still works. The list uses no colors, so `NO_COLOR` is
 respected, and shows "Terminal too small" in very small windows.
+
+Changes go through the same save path as the other commands: if another program
+(an editor, Dropbox, Syncthing) edited the file meanwhile, the edits are merged
+and the status line says so; if they cannot be merged, nothing is written and the
+status line says "Not saved" (`--force` overwrites after keeping a backup).
 
 | Key | Action |
 | --- | --- |
@@ -422,9 +428,13 @@ respected, and shows "Terminal too small" in very small windows.
 | PageUp / PageDown, `g` / `G` | Jump a page, to the top, to the bottom |
 | `/` | Filter as you type (same terms as `ls`); Enter keeps it, Esc clears it |
 | `a` | Toggle between open and all tasks |
+| `x` | Complete the selected task (a recurring one adds its next copy) |
+| `u` | Reopen the selected task (press `a` first to see completed ones) |
+| `p` then a letter | Set the priority; `p` then `-` clears it; any other key cancels |
+| `n` | Add a task: type the text, Enter saves (creation date added), Esc cancels |
 | `q` | Quit |
 
-Adding, completing and editing tasks from the list is planned (see the roadmap).
+Editing and archiving from the list are planned (see the roadmap).
 
 ### Shell completion
 

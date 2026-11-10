@@ -42,7 +42,8 @@ Estimates are focused working hours, including tests and docs.
 
 - [x] Read-only full-screen list built on `curses` with live filtering and an injectable screen for tests (1.5 h; first part of the 4 h item, split)
 - [ ] Windows `windows-curses` extra in `pyproject.toml` and colors in the list (1 h; second part)
-- [ ] Keyboard actions: add, do, undo, priority, edit, archive (3 h)
+- [x] Keyboard actions: add, do, undo, priority, saved through the merge path (1.5 h; first part of the 3 h item, split)
+- [ ] Keyboard actions: edit a task in place, remove, archive (1.5 h; second part)
 - [ ] Respect `NO_COLOR` for list colors and test on real terminals (0.5 h)
 
 ## v1.0 - PyPI release (about 2 h)

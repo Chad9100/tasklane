@@ -22,8 +22,10 @@ First release.
 - Recurring tasks (`rec:`), threshold dates (`t:`) and hidden tasks (`h:1`).
 - Shell completion for bash, zsh, fish and PowerShell, including project and
   context names.
-- `tasklane tui`: a read-only full-screen task list with live filtering
-  (needs `curses`; `windows-curses` on Windows).
+- `tasklane tui`: a full-screen task list with live filtering and keys to
+  complete (`x`), reopen (`u`), prioritise (`p`) and add (`n`) tasks, saved
+  through the normal merge-on-save path (needs `curses`; `windows-curses` on
+  Windows).
 - Merging of edits made by other programs on save, a conflict report, `--force`
   with a backup of the other version, and folding in Dropbox/Syncthing
   conflicted copies.

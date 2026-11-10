@@ -430,7 +430,8 @@ def cmd_tui(args, ctx: Context) -> int:
     tf = ctx.load()
     items = tf.tasks()
     try:
-        tui.launch(items, {n: tf.text(n) for n, _ in items}, ctx.today)
+        tui.launch(items, {n: tf.text(n) for n, _ in items}, ctx.today,
+                   store=tui.TaskStore(ctx.path, ctx.today, ctx.force))
     except tui.TuiUnavailable as exc:
         raise CliError(str(exc)) from None
     return 0
@@ -529,7 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--merge", action="store_true",
                    help="append the tasks the file lacks and rename the copies to NAME.merged")
 
-    command("tui", cmd_tui, "browse open tasks in a full-screen list (read-only; needs curses)")
+    command("tui", cmd_tui, "browse and change tasks in a full-screen list (needs curses)")
 
     p = command("completion", cmd_completion, "print a shell completion script (bash, zsh, fish, powershell)")
     p.add_argument("shell", choices=completion.SHELLS)
