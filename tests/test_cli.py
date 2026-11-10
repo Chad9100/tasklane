@@ -448,3 +448,70 @@ def test_hidden_json_field_and_file_untouched(run, todo):
     run("do", "1")
     assert lines(todo)[0] == "x 2026-11-09 2026-11-01 Placeholder +garden @shed h:1"
     assert lines(todo)[1:] == HIDDEN_SAMPLE.splitlines()[1:]
+
+
+# -- refusing to overwrite edits made by other programs ----------------------
+@pytest.fixture
+def edited_after_load(monkeypatch):
+    """Simulate an editor or sync client writing the file mid-command."""
+    from tasklane import cli
+
+    def install(new_bytes: bytes):
+        real_load = cli.Context.load
+
+        def load(self):
+            tf = real_load(self)
+            self.path.write_bytes(new_bytes)
+            return tf
+
+        monkeypatch.setattr(cli.Context, "load", load)
+
+    return install
+
+
+def test_do_refuses_to_overwrite_a_concurrent_edit(run, sample, edited_after_load):
+    synced = SAMPLE.replace("Buy milk", "Buy oat milk").encode("utf-8")
+    edited_after_load(synced)
+    code, out, err = run("do", "2")
+    assert code == 1
+    assert "todo.txt was changed on disk" in err
+    assert "run the command again" in err
+    assert sample.read_bytes() == synced
+
+
+def test_add_refuses_when_the_file_was_deleted_meanwhile(run, sample, monkeypatch):
+    from tasklane import cli
+
+    real_load = cli.Context.load
+
+    def load(self):
+        tf = real_load(self)
+        self.path.unlink()
+        return tf
+
+    monkeypatch.setattr(cli.Context, "load", load)
+    code, _, err = run("add", "New thing")
+    assert code == 1 and "todo.txt was deleted" in err
+    assert not sample.exists()
+
+
+def test_archive_conflict_leaves_done_txt_untouched(run, sample, edited_after_load):
+    edited = (SAMPLE + "2026-11-09 Added on the phone\n").encode("utf-8")
+    edited_after_load(edited)
+    code, _, err = run("archive")
+    assert code == 1 and "changed on disk" in err
+    assert not (sample.parent / "done.txt").exists()
+    assert sample.read_bytes() == edited
+
+
+def test_rerun_after_conflict_applies_to_new_contents(run, sample, edited_after_load, monkeypatch):
+    from tasklane import cli
+
+    real_load = cli.Context.load
+    edited_after_load((SAMPLE + "2026-11-09 From the phone\n").encode("utf-8"))
+    assert run("do", "2")[0] == 1
+    monkeypatch.setattr(cli.Context, "load", real_load)
+    code, out, _ = run("do", "2")
+    assert code == 0 and "Completed 2" in out
+    text = sample.read_text(encoding="utf-8")
+    assert "From the phone" in text and "x 2026-11-09 2026-11-02 Buy milk" in text

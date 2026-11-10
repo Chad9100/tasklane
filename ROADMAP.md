@@ -25,7 +25,7 @@ Estimates are focused working hours, including tests and docs.
 
 ## v0.4 - sync-friendly merge of concurrent edits (about 6 h)
 
-- [ ] Detect that the file changed on disk between load and save (mtime + content hash) (1 h)
+- [x] Detect that the file changed on disk between load and save (content hash, mtime reported) and refuse to overwrite it (1 h)
 - [ ] Three-way merge of line-level changes instead of overwriting (3 h)
 - [ ] Clear conflict report and a `--force` escape hatch; tests with simulated Dropbox/Syncthing edits (2 h)
 

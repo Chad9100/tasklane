@@ -4,17 +4,25 @@ Every physical line is kept as an :class:`Entry` holding its exact text and
 its own line ending, so a file is written back byte-for-byte unless a task was
 changed. Only modified tasks are re-serialised. A UTF-8 BOM is remembered and
 restored; bytes that are not valid UTF-8 survive via ``surrogateescape``.
+
+A file read with :meth:`TodoFile.load` remembers a fingerprint (SHA-256 of the
+bytes plus their modification time). :meth:`TodoFile.save` refuses to replace
+the file if another program, an editor or a sync client changed it in the
+meantime, raising :class:`FileChangedError` instead of silently discarding
+those edits.
 """
 
 from __future__ import annotations
 
 import codecs
+import hashlib
 import os
 import re
 import shutil
 import tempfile
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from .todo import Task, format_task, parse_task
@@ -26,6 +34,46 @@ _ERRORS = "surrogateescape"
 
 class TaskIndexError(LookupError):
     """Raised for a line number that does not hold a task."""
+
+
+class FileChangedError(Exception):
+    """Raised by :meth:`TodoFile.save` when the file changed since it was loaded."""
+
+    def __init__(self, path: Path, detail: str):
+        self.path = Path(path)
+        self.detail = detail
+        super().__init__(f"{self.path.name} {detail} since tasklane read it; nothing was written")
+
+
+_EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+
+
+@dataclass(frozen=True)
+class Fingerprint:
+    """What a file looked like on disk. A missing file hashes like an empty
+    one, so creating or deleting an *empty* file is not a conflict."""
+
+    exists: bool
+    sha256: str = _EMPTY_SHA256
+    mtime_ns: int = 0
+
+    @classmethod
+    def of_bytes(cls, data: bytes, mtime_ns: int) -> Fingerprint:
+        return cls(True, hashlib.sha256(data).hexdigest(), mtime_ns)
+
+
+def _read_with_mtime(path: Path) -> tuple[bytes, int] | None:
+    try:
+        with open(path, "rb") as handle:
+            mtime_ns = os.fstat(handle.fileno()).st_mtime_ns
+            return handle.read(), mtime_ns
+    except FileNotFoundError:
+        return None
+
+
+def fingerprint(path: Path | str) -> Fingerprint:
+    found = _read_with_mtime(Path(path))
+    return Fingerprint(False) if found is None else Fingerprint.of_bytes(*found)
 
 
 @dataclass
@@ -57,13 +105,21 @@ class TodoFile:
         self.entries = entries
         self.bom = bom
         self.newline = newline
+        # Set by load(); None (as after from_bytes) means "do not check".
+        self.loaded: Fingerprint | None = None
 
     # -- loading -------------------------------------------------------------
     @classmethod
     def load(cls, path: Path | str) -> TodoFile:
         path = Path(path)
-        data = path.read_bytes() if path.exists() else b""
-        return cls.from_bytes(path, data)
+        found = _read_with_mtime(path)
+        if found is None:
+            tf = cls.from_bytes(path, b"")
+            tf.loaded = Fingerprint(False)
+        else:
+            tf = cls.from_bytes(path, found[0])
+            tf.loaded = Fingerprint.of_bytes(*found)
+        return tf
 
     @classmethod
     def from_bytes(cls, path: Path | str, data: bytes) -> TodoFile:
@@ -149,8 +205,37 @@ class TodoFile:
         data = self.to_text().encode(_ENCODING, _ERRORS)
         return (codecs.BOM_UTF8 + data) if self.bom else data
 
+    def check_unchanged(self) -> None:
+        """Raise :class:`FileChangedError` if the file on disk no longer holds
+        the bytes :meth:`load` read. Only content counts: a file that was just
+        touched (new mtime, same bytes), as sync clients often do, is fine."""
+        if self.loaded is None:
+            return
+        now = fingerprint(self.path)
+        before = self.loaded
+        if now.sha256 == before.sha256:
+            return
+        if not now.exists:
+            detail = "was deleted"
+        elif not before.exists:
+            when = datetime.fromtimestamp(now.mtime_ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
+            detail = f"was created by another program (at {when})"
+        else:
+            when = datetime.fromtimestamp(now.mtime_ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
+            detail = f"was changed on disk (modified {when})"
+        raise FileChangedError(self.path, detail)
+
     def save(self) -> None:
-        atomic_write(self.path, self.to_bytes())
+        """Write the file atomically, refusing if it changed since :meth:`load`.
+
+        The check happens right before the atomic replace, so the remaining
+        race window is a few milliseconds rather than the whole command.
+        """
+        self.check_unchanged()
+        data = self.to_bytes()
+        atomic_write(self.path, data)
+        if self.loaded is not None:
+            self.loaded = Fingerprint.of_bytes(data, os.stat(self.path).st_mtime_ns)
 
 
 def atomic_write(path: Path | str, data: bytes) -> None:

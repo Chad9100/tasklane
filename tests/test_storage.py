@@ -115,3 +115,91 @@ def test_atomic_write_creates_and_replaces(tmp_path):
 
 def test_done_path_is_beside_todo(tmp_path):
     assert storage.done_path_for(tmp_path / "work.txt") == tmp_path / "done.txt"
+
+
+# -- detecting edits made by other programs between load and save ------------
+def test_save_refuses_when_another_program_changed_the_file(tmp_path):
+    tmp_path = tmp_path / "data"
+    tmp_path.mkdir()
+    path = tmp_path / "todo.txt"
+    path.write_bytes(b"one\ntwo\n")
+    tf = TodoFile.load(path)
+    tf.append(parse_task("three"))
+    path.write_bytes(b"one\ntwo\nadded in an editor\n")
+    with pytest.raises(storage.FileChangedError, match="todo.txt was changed on disk"):
+        tf.save()
+    assert path.read_bytes() == b"one\ntwo\nadded in an editor\n"
+    assert os.listdir(tmp_path) == ["todo.txt"]  # no stray temp file
+
+
+def test_same_size_edit_with_restored_mtime_is_still_detected(tmp_path):
+    path = tmp_path / "todo.txt"
+    path.write_bytes(b"(A) one\n")
+    st = os.stat(path)
+    tf = TodoFile.load(path)
+    path.write_bytes(b"(B) one\n")  # same length...
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))  # ...and same mtime
+    with pytest.raises(storage.FileChangedError):
+        tf.save()
+
+
+def test_touch_without_content_change_is_not_a_conflict(tmp_path):
+    path = tmp_path / "todo.txt"
+    path.write_bytes(b"one\n")
+    tf = TodoFile.load(path)
+    st = os.stat(path)
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
+    tf.append(parse_task("two"))
+    tf.save()
+    assert path.read_bytes() == b"one\ntwo\n"
+
+
+def test_deleted_file_is_not_silently_recreated(tmp_path):
+    path = tmp_path / "todo.txt"
+    path.write_bytes(b"one\n")
+    tf = TodoFile.load(path)
+    path.unlink()
+    with pytest.raises(storage.FileChangedError, match="was deleted"):
+        tf.save()
+    assert not path.exists()
+
+
+def test_file_created_by_someone_else_after_loading_a_missing_one(tmp_path):
+    path = tmp_path / "todo.txt"
+    tf = TodoFile.load(path)
+    tf.append(parse_task("mine"))
+    path.write_bytes(b"theirs\n")
+    with pytest.raises(storage.FileChangedError, match="was created by another program"):
+        tf.save()
+    assert path.read_bytes() == b"theirs\n"
+
+
+def test_empty_file_appearing_or_vanishing_is_not_a_conflict(tmp_path):
+    path = tmp_path / "todo.txt"
+    tf = TodoFile.load(path)
+    path.write_bytes(b"")
+    tf.append(parse_task("first"))
+    tf.save()
+    assert path.read_bytes() == b"first\n"
+
+
+def test_second_save_after_own_save_is_allowed(tmp_path):
+    path = tmp_path / "todo.txt"
+    tf = TodoFile.load(path)
+    tf.append(parse_task("a"))
+    tf.save()
+    tf.append(parse_task("b"))
+    tf.save()
+    assert path.read_bytes() == b"a\nb\n"
+    path.write_bytes(b"a\nb\nc\n")
+    tf.append(parse_task("d"))
+    with pytest.raises(storage.FileChangedError):
+        tf.save()
+
+
+def test_from_bytes_files_are_not_checked(tmp_path):
+    path = tmp_path / "todo.txt"
+    path.write_bytes(b"something else\n")
+    tf = TodoFile.from_bytes(path, b"a\n")
+    tf.save()
+    assert path.read_bytes() == b"a\n"

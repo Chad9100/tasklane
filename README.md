@@ -386,6 +386,64 @@ shells (fish in CI on Ubuntu); the zsh script is syntax-checked there. Windows
 PowerShell 5.1 does not call completers for a bare `--`, so type one letter
 after it (`--h`). Task text and task numbers are not completed.
 
+### Edits from other programs
+
+Your `todo.txt` may also be open in an editor, on a phone app, or synced by
+Dropbox or Syncthing. tasklane remembers a SHA-256 hash of the bytes it read
+and checks it again right before it replaces the file. If the content changed
+in between (or the file was deleted, or created by someone else), tasklane
+writes nothing, keeps the other program's version and exits with code `1`;
+run the command again to apply it to the new contents. `archive` checks
+before it touches `done.txt`, so a conflict changes neither file. A sync
+client that only touches the file (new modification time, same bytes) is not
+a conflict.
+
+A command reads and writes within milliseconds, so this mostly protects the
+library API, where a `TodoFile` can live longer. Real output from a throwaway
+folder on 2026-11-09, where a sync client appends a line between `load()` and
+`save()` (`demo.py` is the snippet below):
+
+```python
+from tasklane.storage import FileChangedError, TodoFile
+from tasklane.todo import parse_task
+
+tf = TodoFile.load("todo.txt")             # tasklane reads the file...
+with open("todo.txt", "a", encoding="utf-8") as f:
+    f.write("2026-11-09 Call the plumber @phone
+")   # ...a sync client writes it...
+tf.append(parse_task("2026-11-09 Book dentist +health"))
+try:
+    tf.save()                               # ...and tasklane refuses to clobber it
+except FileChangedError as exc:
+    print("FileChangedError:", exc)
+```
+
+```console
+$ python demo.py
+FileChangedError: todo.txt was changed on disk (modified 2026-11-09 21:14:35) since tasklane read it; nothing was written
+
+$ cat todo.txt
+(A) 2026-11-01 Renew passport +travel due:2026-11-12
+2026-11-02 Buy milk +home @shop
+2026-11-09 Call the plumber @phone
+
+$ tasklane add "Book dentist +health"
+Added 4: 2026-11-09 Book dentist +health
+
+$ tasklane ls
+1 (A) 2026-11-01 Renew passport +travel due:2026-11-12
+2 2026-11-02 Buy milk +home @shop
+3 2026-11-09 Call the plumber @phone
+4 2026-11-09 Book dentist +health
+--
+4 of 4 tasks shown
+```
+
+From the command line the same conflict is reported on stderr as
+`tasklane: error: todo.txt was changed on disk (...) since tasklane read it;
+nothing was written`, followed by a hint to run the command again. Merging
+both sets of changes automatically is planned (see the roadmap).
+
 ## todo.txt compatibility
 
 * Lines are parsed per the spec: `x` + space marks completion, followed by an
@@ -406,6 +464,8 @@ after it (`--h`). Task text and task numbers are not completed.
   and then atomically replaces the original, so a crash never leaves a
   half-written `todo.txt`. `archive` writes `done.txt` before `todo.txt`: an
   interruption can at worst duplicate a task, never lose it.
+* A write is refused if another program changed the file since tasklane read
+  it (see [Edits from other programs](#edits-from-other-programs)).
 * `rm` blanks the line instead of deleting it (like todo.sh's default) so line
   numbers stay stable; `archive` removes the blank lines.
 

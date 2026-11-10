@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 
 from . import __version__, completion, query, recur
-from .storage import TaskIndexError, TodoFile, done_path_for
+from .storage import FileChangedError, TaskIndexError, TodoFile, done_path_for
 from .todo import Task, parse_task
 
 
@@ -267,6 +267,7 @@ def cmd_archive(args, ctx: Context) -> int:
         print("Nothing to archive.")
         return 0
     if moved:
+        tf.check_unchanged()  # before touching done.txt, so a conflict changes nothing
         done = TodoFile.load(ctx.done_path)
         for raw in moved:
             done.append_raw(raw)
@@ -456,6 +457,11 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
         return args.func(args, ctx)
     except (CliError, TaskIndexError) as exc:
         print(f"tasklane: error: {exc}", file=sys.stderr)
+        return 1
+    except FileChangedError as exc:
+        print(f"tasklane: error: {exc}", file=sys.stderr)
+        print("tasklane: the other program's version (an editor, a sync client) was kept;"
+              " run the command again to apply it to the new contents", file=sys.stderr)
         return 1
     except OSError as exc:
         print(f"tasklane: error: {exc}", file=sys.stderr)
