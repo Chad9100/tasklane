@@ -8,8 +8,10 @@ restored; bytes that are not valid UTF-8 survive via ``surrogateescape``.
 A file read with :meth:`TodoFile.load` remembers a fingerprint (SHA-256 of the
 bytes plus their modification time). :meth:`TodoFile.save` refuses to replace
 the file if another program, an editor or a sync client changed it in the
-meantime, raising :class:`FileChangedError` instead of silently discarding
-those edits.
+meantime without merging: changes to different lines are combined with a
+three-way merge (see :mod:`tasklane.merge`), and only edits of the same lines,
+a deleted file or one created by someone else raise :class:`FileChangedError`
+instead of silently discarding those edits.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from .merge import Conflict, join_merged, merge_bytes
 from .todo import Task, format_task, parse_task
 
 _LINE = re.compile(r"([^\r\n]*)(\r\n|\n|\r)")
@@ -39,9 +42,10 @@ class TaskIndexError(LookupError):
 class FileChangedError(Exception):
     """Raised by :meth:`TodoFile.save` when the file changed since it was loaded."""
 
-    def __init__(self, path: Path, detail: str):
+    def __init__(self, path: Path, detail: str, conflicts: list[Conflict] | None = None):
         self.path = Path(path)
         self.detail = detail
+        self.conflicts = conflicts or []
         super().__init__(f"{self.path.name} {detail} since tasklane read it; nothing was written")
 
 
@@ -107,6 +111,11 @@ class TodoFile:
         self.newline = newline
         # Set by load(); None (as after from_bytes) means "do not check".
         self.loaded: Fingerprint | None = None
+        self._base = b""  # the bytes load() read, the base of a merge
+        # After a save that merged edits from another program: True, plus the
+        # new number of every line whose number changed (None if it is gone).
+        self.merged = False
+        self.renumbered: dict[int, int | None] = {}
 
     # -- loading -------------------------------------------------------------
     @classmethod
@@ -119,6 +128,7 @@ class TodoFile:
         else:
             tf = cls.from_bytes(path, found[0])
             tf.loaded = Fingerprint.of_bytes(*found)
+            tf._base = found[0]
         return tf
 
     @classmethod
@@ -150,6 +160,11 @@ class TodoFile:
     def get(self, n: int) -> Task:
         """Return a copy of task *n* (1-based line number)."""
         return self._entry(n).task.copy()  # type: ignore[union-attr]
+
+    def number(self, n: int) -> int:
+        """Line *n*'s number after the last save (a merge can move lines)."""
+        new = self.renumbered.get(n, n)
+        return n if new is None else new
 
     def text(self, n: int) -> str:
         return self._entry(n).text
@@ -205,6 +220,14 @@ class TodoFile:
         data = self.to_text().encode(_ENCODING, _ERRORS)
         return (codecs.BOM_UTF8 + data) if self.bom else data
 
+    def _changed_detail(self, now: Fingerprint) -> str:
+        if not now.exists:
+            return "was deleted"
+        when = datetime.fromtimestamp(now.mtime_ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
+        if not self.loaded or not self.loaded.exists:
+            return f"was created by another program (at {when})"
+        return f"was changed on disk (modified {when})"
+
     def check_unchanged(self) -> None:
         """Raise :class:`FileChangedError` if the file on disk no longer holds
         the bytes :meth:`load` read. Only content counts: a file that was just
@@ -212,30 +235,52 @@ class TodoFile:
         if self.loaded is None:
             return
         now = fingerprint(self.path)
-        before = self.loaded
-        if now.sha256 == before.sha256:
-            return
-        if not now.exists:
-            detail = "was deleted"
-        elif not before.exists:
-            when = datetime.fromtimestamp(now.mtime_ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
-            detail = f"was created by another program (at {when})"
-        else:
-            when = datetime.fromtimestamp(now.mtime_ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
-            detail = f"was changed on disk (modified {when})"
-        raise FileChangedError(self.path, detail)
+        if now.sha256 != self.loaded.sha256:
+            raise FileChangedError(self.path, self._changed_detail(now))
+
+    def bytes_to_save(self) -> tuple[bytes, list[int | None] | None]:
+        """What :meth:`save` would write now, merged with edits another program
+        made since :meth:`load`, plus (after a merge) the new 0-based index of
+        each of our lines. Raises :class:`FileChangedError` when the edits
+        overlap, or when the file was deleted or created by someone else."""
+        data = self.to_bytes()
+        if self.loaded is None:
+            return data, None
+        found = _read_with_mtime(self.path)
+        now = Fingerprint(False) if found is None else Fingerprint.of_bytes(*found)
+        if now.sha256 == self.loaded.sha256:
+            return data, None
+        if found is None or not self.loaded.exists:
+            raise FileChangedError(self.path, self._changed_detail(now))
+        result = merge_bytes(self._base, data, found[0])
+        if not result.clean:
+            detail = self._changed_detail(now) + " in the same lines"
+            raise FileChangedError(self.path, detail, result.conflicts)
+        return join_merged(result), result.ours_at
 
     def save(self) -> None:
-        """Write the file atomically, refusing if it changed since :meth:`load`.
+        """Write the file atomically, merging edits made since :meth:`load`.
 
         The check happens right before the atomic replace, so the remaining
-        race window is a few milliseconds rather than the whole command.
+        race window is a few milliseconds rather than the whole command. After
+        a merge the entries are re-read from the merged bytes and
+        :attr:`renumbered` says where lines moved.
         """
-        self.check_unchanged()
-        data = self.to_bytes()
+        data, ours_at = self.bytes_to_save()
         atomic_write(self.path, data)
+        self.merged, self.renumbered = False, {}
+        if ours_at is not None:
+            fresh = TodoFile.from_bytes(self.path, data)
+            self.entries, self.bom, self.newline = fresh.entries, fresh.bom, fresh.newline
+            self.merged = True
+            self.renumbered = {
+                old: (None if new is None else new + 1)
+                for old, new in enumerate(ours_at, 1)
+                if new is None or new + 1 != old
+            }
         if self.loaded is not None:
             self.loaded = Fingerprint.of_bytes(data, os.stat(self.path).st_mtime_ns)
+            self._base = data
 
 
 def atomic_write(path: Path | str, data: bytes) -> None:

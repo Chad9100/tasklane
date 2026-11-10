@@ -94,6 +94,14 @@ class Context:
         return f"{n:>{width}} {line}"
 
 
+def _save(tf: TodoFile) -> None:
+    """Save, telling the user when edits from another program were merged in."""
+    tf.save()
+    if tf.merged:
+        print(f"tasklane: merged with changes another program made to {tf.path.name}"
+              " meanwhile", file=sys.stderr)
+
+
 def _print_json(obj) -> None:
     print(json.dumps(obj, indent=2, ensure_ascii=False))
 
@@ -117,7 +125,8 @@ def cmd_add(args, ctx: Context) -> int:
         task.creation_date = ctx.today
     tf = ctx.load()
     n = tf.append(task)
-    tf.save()
+    _save(tf)
+    n = tf.number(n)
     print(f"Added {n}: {tf.text(n)}")
     return 0
 
@@ -169,10 +178,11 @@ def cmd_do(args, ctx: Context) -> int:
     tf = ctx.load()
     numbers = _numbers(args.numbers)
     tasks = {n: tf.get(n) for n in numbers}  # validate every number before changing anything
+    report: list[tuple[str, int]] = []  # printed after saving, when numbers are final
     for n in numbers:
         task = tasks[n]
         if task.done:
-            print(f"Task {n} is already done.")
+            report.append(("Task {n} is already done.", n))
             continue
         try:
             following = recur.next_task(task, ctx.today)
@@ -181,11 +191,13 @@ def cmd_do(args, ctx: Context) -> int:
             following = None
         task.complete(ctx.today)
         tf.set(n, task)
-        print(f"Completed {n}: {tf.text(n)}")
+        report.append(("Completed {n}: {text}", n))
         if following is not None:
-            m = tf.append(following)
-            print(f"Recurring: added {m}: {tf.text(m)}")
-    tf.save()
+            report.append(("Recurring: added {n}: {text}", tf.append(following)))
+    _save(tf)
+    for template, n in report:
+        n = tf.number(n)
+        print(template.format(n=n, text=tf.text(n) if "{text}" in template else ""))
     return 0
 
 
@@ -196,8 +208,9 @@ def cmd_undo(args, ctx: Context) -> int:
         raise CliError(f"task {args.number} is not done")
     task.uncomplete()
     tf.set(args.number, task)
-    tf.save()
-    print(f"Reopened {args.number}: {tf.text(args.number)}")
+    _save(tf)
+    n = tf.number(args.number)
+    print(f"Reopened {n}: {tf.text(n)}")
     return 0
 
 
@@ -211,8 +224,9 @@ def cmd_pri(args, ctx: Context) -> int:
         raise CliError(f"task {args.number} is done; undo it first")
     task.priority = letter
     tf.set(args.number, task)
-    tf.save()
-    print(f"Prioritized {args.number}: {tf.text(args.number)}")
+    _save(tf)
+    n = tf.number(args.number)
+    print(f"Prioritized {n}: {tf.text(n)}")
     return 0
 
 
@@ -224,8 +238,9 @@ def cmd_depri(args, ctx: Context) -> int:
         return 0
     task.priority = None
     tf.set(args.number, task)
-    tf.save()
-    print(f"Deprioritized {args.number}: {tf.text(args.number)}")
+    _save(tf)
+    n = tf.number(args.number)
+    print(f"Deprioritized {n}: {tf.text(n)}")
     return 0
 
 
@@ -243,8 +258,9 @@ def cmd_edit(args, ctx: Context) -> int:
     elif not new.done and new.priority is None:
         new.priority = old.priority
     tf.set(args.number, new)
-    tf.save()
-    print(f"Edited {args.number}: {tf.text(args.number)}")
+    _save(tf)
+    n = tf.number(args.number)
+    print(f"Edited {n}: {tf.text(n)}")
     return 0
 
 
@@ -254,8 +270,8 @@ def cmd_rm(args, ctx: Context) -> int:
     if not args.yes:
         raise CliError(f"refusing to remove task {args.number} without --yes: {raw}")
     tf.blank(args.number)
-    tf.save()
-    print(f"Removed {args.number}: {raw}")
+    _save(tf)
+    print(f"Removed {tf.number(args.number)}: {raw}")
     return 0
 
 
@@ -267,12 +283,12 @@ def cmd_archive(args, ctx: Context) -> int:
         print("Nothing to archive.")
         return 0
     if moved:
-        tf.check_unchanged()  # before touching done.txt, so a conflict changes nothing
+        tf.bytes_to_save()  # merge before touching done.txt, so a conflict changes nothing
         done = TodoFile.load(ctx.done_path)
         for raw in moved:
             done.append_raw(raw)
         done.save()  # write done.txt first: a crash can duplicate, never lose
-    tf.save()
+    _save(tf)
     print(f"Archived {len(moved)} task(s) to {ctx.done_path.name}; line numbers renumbered.")
     return 0
 

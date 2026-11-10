@@ -496,7 +496,7 @@ def test_add_refuses_when_the_file_was_deleted_meanwhile(run, sample, monkeypatc
 
 
 def test_archive_conflict_leaves_done_txt_untouched(run, sample, edited_after_load):
-    edited = (SAMPLE + "2026-11-09 Added on the phone\n").encode("utf-8")
+    edited = SAMPLE.replace("x 2026-11-08 2026-11-01 Old thing", "2026-11-01 Old thing").encode("utf-8")
     edited_after_load(edited)
     code, _, err = run("archive")
     assert code == 1 and "changed on disk" in err
@@ -508,10 +508,10 @@ def test_rerun_after_conflict_applies_to_new_contents(run, sample, edited_after_
     from tasklane import cli
 
     real_load = cli.Context.load
-    edited_after_load((SAMPLE + "2026-11-09 From the phone\n").encode("utf-8"))
+    edited_after_load(SAMPLE.replace("Buy milk", "Buy oat milk").encode("utf-8"))
     assert run("do", "2")[0] == 1
     monkeypatch.setattr(cli.Context, "load", real_load)
     code, out, _ = run("do", "2")
     assert code == 0 and "Completed 2" in out
     text = sample.read_text(encoding="utf-8")
-    assert "From the phone" in text and "x 2026-11-09 2026-11-02 Buy milk" in text
+    assert "x 2026-11-09 2026-11-02 Buy oat milk" in text

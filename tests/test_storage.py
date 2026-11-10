@@ -118,17 +118,21 @@ def test_done_path_is_beside_todo(tmp_path):
 
 
 # -- detecting edits made by other programs between load and save ------------
-def test_save_refuses_when_another_program_changed_the_file(tmp_path):
+def test_save_refuses_when_another_program_changed_the_same_line(tmp_path):
     tmp_path = tmp_path / "data"
     tmp_path.mkdir()
     path = tmp_path / "todo.txt"
     path.write_bytes(b"one\ntwo\n")
     tf = TodoFile.load(path)
-    tf.append(parse_task("three"))
-    path.write_bytes(b"one\ntwo\nadded in an editor\n")
-    with pytest.raises(storage.FileChangedError, match="todo.txt was changed on disk"):
+    tf.set(2, parse_task("(A) two"))
+    path.write_bytes(b"one\ntwo, edited in an editor\n")
+    with pytest.raises(storage.FileChangedError, match="todo.txt was changed on disk") as info:
         tf.save()
-    assert path.read_bytes() == b"one\ntwo\nadded in an editor\n"
+    assert "in the same lines" in str(info.value)
+    [conflict] = info.value.conflicts
+    assert (conflict.base, conflict.ours, conflict.theirs) == (
+        [b"two\n"], [b"(A) two\n"], [b"two, edited in an editor\n"])
+    assert path.read_bytes() == b"one\ntwo, edited in an editor\n"
     assert os.listdir(tmp_path) == ["todo.txt"]  # no stray temp file
 
 
@@ -137,6 +141,7 @@ def test_same_size_edit_with_restored_mtime_is_still_detected(tmp_path):
     path.write_bytes(b"(A) one\n")
     st = os.stat(path)
     tf = TodoFile.load(path)
+    tf.set(1, parse_task("(C) one"))
     path.write_bytes(b"(B) one\n")  # same length...
     os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))  # ...and same mtime
     with pytest.raises(storage.FileChangedError):
@@ -191,9 +196,9 @@ def test_second_save_after_own_save_is_allowed(tmp_path):
     tf.append(parse_task("b"))
     tf.save()
     assert path.read_bytes() == b"a\nb\n"
-    path.write_bytes(b"a\nb\nc\n")
-    tf.append(parse_task("d"))
-    with pytest.raises(storage.FileChangedError):
+    path.write_bytes(b"a\nB\n")
+    tf.set(2, parse_task("b2"))
+    with pytest.raises(storage.FileChangedError):  # the base moved to our own save
         tf.save()
 
 
