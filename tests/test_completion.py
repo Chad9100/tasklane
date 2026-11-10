@@ -1,7 +1,9 @@
 import argparse
 import os
 import shutil
+import shlex
 import subprocess
+import sysconfig
 from pathlib import Path
 
 import pytest
@@ -166,3 +168,147 @@ def test_zsh_and_fish_scripts_parse(tmp_path, shell, check):
     path.write_text(generate(shell), encoding="utf-8")
     result = subprocess.run([exe, *check[1:], str(path)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
+
+
+# -- +project and @context names from the current file ------------------------
+NAMES_TODO = (
+    "(A) Call mom +family @phone\n"
+    "Buy milk +home @errands\n"
+    "x 2026-11-01 Fix bike +home @garage\n"
+    "Odd names +$(touch_pwned) @it's\n"
+)
+
+
+def test_spec_lists_the_commands_that_complete_names():
+    assert completion.build_spec(build_parser()).name_commands == ["add", "ls", "edit"]
+
+
+@pytest.mark.parametrize("shell", completion.SHELLS)
+def test_parsers_without_projects_command_get_no_name_completion(shell):
+    parser = argparse.ArgumentParser(prog="demo")
+    sub = parser.add_subparsers()
+    sub.add_parser("add").add_argument("text", nargs="+")
+    text = completion.script(shell, parser)
+    assert completion.build_spec(parser).name_commands == []
+    assert not any(call in text for call in ("kind=contexts", "set kind contexts", "'contexts'"))
+
+
+def _scripts_env(tmp_path) -> dict[str, str]:
+    """Environment with the installed tasklane on PATH and a throwaway TASKLANE_FILE."""
+    scripts = sysconfig.get_path("scripts")
+    if not shutil.which("tasklane", path=scripts):
+        pytest.skip("tasklane is not installed as a command")
+    default = tmp_path / "default.txt"
+    default.write_text("Default file task +fromenv @envctx\n", encoding="utf-8")
+    env = dict(os.environ, TASKLANE_FILE=str(default))
+    env["PATH"] = scripts + os.pathsep + env.get("PATH", "")
+    return env
+
+
+def test_bash_completes_names_from_the_file(tmp_path):
+    bash = _bash()
+    if not bash:
+        pytest.skip("bash not available")
+    env = _scripts_env(tmp_path)
+    (tmp_path / "todo.txt").write_text(NAMES_TODO, encoding="utf-8")
+    # (COMP_LINE, words as bash splits them: "@" is in COMP_WORDBREAKS) -> reply
+    cases = [
+        ("tasklane --file todo.txt add Call +", ["tasklane", "--file", "todo.txt", "add", "Call", "+"],
+         r"+\$\(touch_pwned\) +family +home"),
+        ("tasklane --file todo.txt add Call +h", ["tasklane", "--file", "todo.txt", "add", "Call", "+h"], "+home"),
+        ("tasklane ls --file todo.txt @", ["tasklane", "ls", "--file", "todo.txt", "@"],
+         r"@errands @garage @it\'s @phone"),
+        ("tasklane --file todo.txt edit 2 Buy @ph", ["tasklane", "--file", "todo.txt", "edit", "2", "Buy", "@", "ph"],
+         "phone"),
+        ("tasklane add x +", ["tasklane", "add", "x", "+"], "+fromenv"),
+        ("tasklane --file todo.txt do +", ["tasklane", "--file", "todo.txt", "do", "+"], ""),
+        ("tasklane --file todo.txt ls --a", ["tasklane", "--file", "todo.txt", "ls", "--a"], "--all"),
+    ]
+    probe = [generate("bash")]
+    probe.append(
+        't() { COMP_LINE="$1"; COMP_POINT=${#COMP_LINE}; shift; COMP_WORDS=("$@"); '
+        'COMP_CWORD=$((${#COMP_WORDS[@]} - 1)); COMPREPLY=(); _tasklane_complete; echo "${COMPREPLY[*]}"; }'
+    )
+    for line, words, _ in cases:
+        probe.append("t " + " ".join(shlex.quote(w) for w in [line, *words]))
+    result = subprocess.run(
+        [bash, "--norc", "--noprofile", "-s"],
+        input="\n".join(probe) + "\n",
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env=env,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [expected for _, _, expected in cases]
+    assert not (tmp_path / "touch_pwned").exists()
+    assert (tmp_path / "todo.txt").read_text(encoding="utf-8") == NAMES_TODO
+
+
+def test_powershell_completes_names_from_the_file(tmp_path):
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if not shell:
+        pytest.skip("PowerShell not available")
+    env = _scripts_env(tmp_path)
+    todo = tmp_path / "todo.txt"
+    todo.write_text(NAMES_TODO, encoding="utf-8")
+    cases = {
+        f"tasklane --file '{todo}' add Call +": "'+$(touch_pwned)' +family +home",
+        f"tasklane --file '{todo}' add Call +h": "+home",
+        f"tasklane ls --file '{todo}' @": "'@errands' '@garage' '@it''s' '@phone'",
+        f"tasklane --file '{todo}' edit 2 Buy '@ph": "'@phone'",
+        "tasklane add x +": "+fromenv",
+        f"tasklane --file '{todo}' do +": "",
+    }
+    script = tmp_path / "tasklane.ps1"
+    script.write_text(generate("powershell"), encoding="utf-8")
+    probe = [f". '{script}'"]
+    for line in cases:
+        quoted = line.replace("'", "''")
+        probe.append(
+            f"$r = TabExpansion2 -inputScript '{quoted}' -cursorColumn {len(line)}; "
+            "(@($r.CompletionMatches | ForEach-Object CompletionText) -join ' ')"
+        )
+    runner = tmp_path / "probe.ps1"
+    runner.write_text("\n".join(probe) + "\n", encoding="utf-8")
+    result = subprocess.run(
+        [shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(runner)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == list(cases.values())
+    assert todo.read_text(encoding="utf-8") == NAMES_TODO
+
+
+def test_fish_completes_names_from_the_file(tmp_path):
+    fish = shutil.which("fish")
+    if not fish:
+        pytest.skip("fish not available")
+    env = _scripts_env(tmp_path)
+    todo = tmp_path / "todo.txt"
+    todo.write_text(NAMES_TODO, encoding="utf-8")
+    script = tmp_path / "tasklane.fish"
+    script.write_text(generate("fish"), encoding="utf-8")
+    lines = [
+        f"tasklane --file {todo} add Call +h",
+        f"tasklane ls --file {todo} @",
+        "tasklane add x +",
+        f"tasklane --file {todo} do +",
+    ]
+    probe = [f"source {shlex.quote(str(script))}"]
+    probe += [f"echo (complete -C {shlex.quote(line)} | string replace -r '\t.*' '')" for line in lines]
+    result = subprocess.run(
+        [fish, "--no-config", "-c", "; ".join(probe)],
+        capture_output=True, text=True, env=env, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "+home",
+        "@errands @garage @it's @phone",  # fish escapes a completion only when inserting it
+        "+fromenv",
+        "",
+    ]

@@ -1,9 +1,14 @@
 """Shell completion scripts for bash, zsh, fish and PowerShell.
 
 The scripts are generated from the argparse parser, so every command and
-option the CLI accepts is offered and new ones appear automatically. They are
-static: they complete commands, options, option values with fixed choices and
-paths for ``--file``, without running tasklane on every key press.
+option the CLI accepts is offered and new ones appear automatically. Commands,
+options, option values with fixed choices and paths for ``--file`` are
+completed statically. Only a word starting with ``+`` or ``@`` in the task
+text of ``add``, ``edit`` and ``ls`` runs ``tasklane projects`` or ``tasklane
+contexts`` (with the same ``--file``) to offer the names already used in the
+file. Those names are filtered as plain strings and never evaluated by the
+shell, and they are inserted quoted where needed, so a synced todo.txt cannot
+inject code through the completion.
 """
 
 from __future__ import annotations
@@ -12,6 +17,8 @@ import argparse
 from dataclasses import dataclass, field
 
 SHELLS = ("bash", "zsh", "fish", "powershell")
+# Commands whose free text takes +project and @context words, completed from the file.
+TEXT_COMMANDS = ("add", "edit", "ls")
 
 
 @dataclass
@@ -31,6 +38,7 @@ class Spec:
     option_choices: dict[str, list[str]]
     option_help: dict[str, str]
     file_options: list[str]
+    name_commands: list[str] = field(default_factory=list)
 
 
 def _option_actions(parser: argparse.ArgumentParser):
@@ -69,7 +77,11 @@ def build_spec(parser: argparse.ArgumentParser) -> Spec:
             if positionals and positionals[0].choices:
                 cmd.positional_choices = [str(c) for c in positionals[0].choices]
             commands.append(cmd)
-    return Spec(parser.prog, global_options, commands, value_options, choices, helps, files)
+    names = {c.name for c in commands}
+    name_commands = [] if not {"projects", "contexts"} <= names else [
+        c.name for c in commands if c.name in TEXT_COMMANDS
+    ]
+    return Spec(parser.prog, global_options, commands, value_options, choices, helps, files, name_commands)
 
 
 # -- bash --------------------------------------------------------------------
@@ -81,12 +93,13 @@ def _bash(spec: Spec) -> str:
         f'# Load it with:  eval "$({spec.prog} completion bash)"',
         f"{fn}() {{",
         '    local cur="${COMP_WORDS[COMP_CWORD]}" prev="${COMP_WORDS[COMP_CWORD-1]}"',
-        '    local cmd="" words="" i',
+        '    local cmd="" words="" file="" i',
         "    for ((i = 1; i < COMP_CWORD; i++)); do",
         '        case "${COMP_WORDS[i]}" in',
+        '            --file) file="${COMP_WORDS[i+1]}"; ((i++)) ;;',
         f"            {value_pattern}) ((i++)) ;;",
         "            -*) ;;",
-        '            *) cmd="${COMP_WORDS[i]}"; break ;;',
+        '            *) [[ -z "$cmd" ]] && cmd="${COMP_WORDS[i]}" ;;',
         "        esac",
         "    done",
         '    case "$prev" in',
@@ -99,8 +112,30 @@ def _bash(spec: Spec) -> str:
         else:
             action = "COMPREPLY=()"
         lines.append(f"        {opt}) {action}; return 0 ;;")
+    lines.append("    esac")
+    if spec.name_commands:
+        # "@" is in COMP_WORDBREAKS, so "@wo" arrives as the words "@" and "wo":
+        # match against the whole word before the cursor and reply with the
+        # part after what bash treats as the current word.
+        lines += [
+            f'    case "$cmd" in {"|".join(spec.name_commands)})',
+            '        local typed="${COMP_LINE:0:COMP_POINT}"',
+            '        typed="${typed##*[[:space:]]}"',
+            '        [[ -z "$COMP_LINE" ]] && typed="$cur"',
+            '        if [[ "$typed" == [+@]* ]]; then',
+            '            local kind=projects name lead="${typed%"$cur"}"',
+            '            [[ "$typed" == @* ]] && kind=contexts',
+            "            while IFS= read -r name; do",
+            "                name=\"${name%$'\\r'}\"",
+            '                [[ "$name" == "$typed"* ]] || continue',
+            '                printf -v name %q "${name#"$lead"}"  # inserted literally, never run',
+            '                COMPREPLY+=("$name")',
+            f'            done < <({spec.prog} ${{file:+--file "$file"}} "$kind" 2>/dev/null)',
+            "            return 0",
+            "        fi ;;",
+            "    esac",
+        ]
     lines += [
-        "    esac",
         '    case "$cmd" in',
         f'        "") if [[ "$cur" == -* ]]; then words="{" ".join(spec.global_options)}"; '
         f'else words="{" ".join(c.name for c in spec.commands)}"; fi ;;',
@@ -138,12 +173,13 @@ def _zsh(spec: Spec) -> str:
         f'# Load it with:  eval "$({spec.prog} completion zsh)"   (after compinit)',
         f"# or save it as {fn} in a directory on your $fpath.",
         f"{fn}() {{",
-        "    local prev=${words[CURRENT-1]} cmd= i",
+        "    local prev=${words[CURRENT-1]} cmd= file= i",
         "    for ((i = 2; i < CURRENT; i++)); do",
         "        case ${words[i]} in",
+        "            (--file) file=${(Q)words[i+1]}; ((i++)) ;;",
         f"            ({value_pattern}) ((i++)) ;;",
         "            (-*) ;;",
-        "            (*) cmd=${words[i]}; break ;;",
+        "            (*) [[ -z $cmd ]] && cmd=${words[i]} ;;",
         "        esac",
         "    done",
         "    case $prev in",
@@ -167,6 +203,20 @@ def _zsh(spec: Spec) -> str:
         "        fi",
         "        return",
         "    fi",
+    ]
+    if spec.name_commands:
+        lines += [
+            f"    if [[ $cmd == ({'|'.join(spec.name_commands)}) && ${{words[CURRENT]}} == [+@]* ]]; then",
+            "        local kind=projects",
+            "        [[ ${words[CURRENT]} == @* ]] && kind=contexts",
+            "        local -a fileopt=()",
+            '        [[ -n $file ]] && fileopt=(--file "$file")',
+            f'        local -a names=(${{(f)"$({spec.prog} $fileopt $kind 2>/dev/null)"}})',
+            "        compadd -- ${names%$'\\r'}",
+            "        return",
+            "    fi",
+        ]
+    lines += [
         "    case $cmd in",
     ]
     for cmd in spec.commands:
@@ -228,6 +278,22 @@ def _fish(spec: Spec) -> str:
             lines.append(_fish_option(spec, cond, opt))
         if cmd.positional_choices:
             lines.append(f"{cond} -a {_fish_quote(' '.join(cmd.positional_choices))}")
+    if spec.name_commands:
+        helper = f"__{spec.prog}_names"
+        lines += [
+            f"function {helper}",
+            "    set -l words (commandline -opc)",
+            "    set -l opts",
+            "    for i in (seq 2 (math (count $words) - 1))",
+            "        test \"$words[$i]\" = --file; and set opts --file $words[(math $i + 1)]",
+            "    end",
+            "    set -l kind projects",
+            "    string match -q -- '@*' (commandline -ct); and set kind contexts",
+            f"    {spec.prog} $opts $kind 2>/dev/null | string replace -r '\\r$' ''",
+            "end",
+            f"{c} -n '__fish_seen_subcommand_from {' '.join(spec.name_commands)}; "
+            f"and string match -qr \"^[+@]\" -- (commandline -ct)' -a '({helper})'",
+        ]
     lines.append("")
     return "\n".join(lines)
 
@@ -279,6 +345,28 @@ def _powershell(spec: Spec) -> str:
         "        if ($valueOptions -contains $w) { $i++ }",
         "        elseif (-not $w.StartsWith('-')) { $cmd = $w; break }",
         "    }",
+    ]
+    if spec.name_commands:
+        lines += [
+            f"    $nameCommands = {_ps_list(spec.name_commands)}",
+            "    $file = $null",
+            "    for ($i = 1; $i -lt $words.Count - 1; $i++) {",
+            "        if ($words[$i] -eq '--file') { $file = $words[$i + 1].Trim([char[]]@([char]39, [char]34)) }",
+            "    }",
+            "    # A bare @word is splatting in PowerShell, so contexts (and any name with",
+            "    # characters PowerShell would interpret) are offered single-quoted.",
+            "    $typed = $wordToComplete.Trim([char[]]@([char]39, [char]34))",
+            "    if ($nameCommands -contains $cmd -and $typed -match '^[+@]' -and $valueOptions -notcontains $prev) {",
+            "        $kind = if ($typed.StartsWith('@')) { 'contexts' } else { 'projects' }",
+            "        $fileArgs = if ($file) { @('--file', $file) } else { @() }",
+            f"        $names = @(try {{ & {_ps_quote(spec.prog)} @fileArgs $kind 2>$null }} catch {{ }})",
+            "        return @($names | Where-Object { $_ -and $_.StartsWith($typed) } | ForEach-Object {",
+            "            $text = if ($_ -match '^\\+[\\w.:/-]*$') { $_ } else { \"'\" + $_.Replace(\"'\", \"''\") + \"'\" }",
+            "            [System.Management.Automation.CompletionResult]::new($text, $_, 'ParameterValue', $_)",
+            "        })",
+            "    }",
+        ]
+    lines += [
         "    $candidates = @()",
         "    if ($fileOptions -contains $prev) { return }  # fall back to path completion",
         "    elseif ($choices.ContainsKey($prev)) { $candidates = $choices[$prev] }",

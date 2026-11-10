@@ -332,11 +332,59 @@ PS> TabExpansion2 'tasklane --color '  ->  auto always never
 PS> TabExpansion2 'tasklane completion '  ->  bash zsh fish powershell
 ```
 
-The bash and PowerShell scripts are exercised by the test suite in real
-shells; the zsh and fish scripts are syntax-checked in CI on Ubuntu. Windows
+#### Project and context names
+
+In the task text of `add`, `edit` and `ls`, a word starting with `+` or `@`
+completes from the names already used in your file. The script runs
+`tasklane projects` or `tasklane contexts` for that, with the same `--file`
+if the command line has one (otherwise `$TASKLANE_FILE` or `~/todo.txt`), so
+it only reads the file and never changes it. Completed tasks count, so names
+from finished work are still offered. Real output on 2026-11-09 from a
+throwaway `todo.txt` made with:
+
+```text
+$ tasklane add "(A) Renew passport +travel @errands"
+Added 1: (A) 2026-11-09 Renew passport +travel @errands
+$ tasklane add "Pay rent +home @laptop"
+Added 2: 2026-11-09 Pay rent +home @laptop
+$ tasklane add "Book flights +travel @laptop"
+Added 3: 2026-11-09 Book flights +travel @laptop
+$ tasklane add "Fix the shelf +home +diy @garage"
+Added 4: 2026-11-09 Fix the shelf +home +diy @garage
+```
+
+In bash:
+
+```text
+tasklane add Call the plumber +<TAB>  ->  +diy +home +travel
+tasklane add Call the plumber +h<TAB>  ->  +home
+tasklane ls @<TAB>  ->  @errands @garage @laptop
+tasklane ls @la<TAB>  ->  laptop
+tasklane --file other.txt ls +<TAB>  ->  +x
+```
+
+bash treats `@` as a word break, so for `@la` the reply is the rest of the
+word (`laptop`) and the line reads `@laptop` after <kbd>Tab</kbd>. The last
+line used an `other.txt` containing `Other projects: +x @y`.
+
+In Windows PowerShell 5.1:
+
+```text
+PS> TabExpansion2 "tasklane ls +"  ->  +diy +home +travel
+PS> TabExpansion2 "tasklane add Call the plumber +h"  ->  +home
+PS> TabExpansion2 "tasklane ls @"  ->  '@errands' '@garage' '@laptop'
+PS> TabExpansion2 "tasklane ls '@la"  ->  '@laptop'
+```
+
+A bare `@laptop` is splatting in PowerShell, so contexts are inserted in
+single quotes; start the word with `'@` (or just `@`) to complete one. Names
+are matched as plain text and inserted escaped (bash, zsh, fish) or quoted
+(PowerShell), so odd characters in a synced file cannot run commands.
+
+The bash, PowerShell and fish scripts are exercised by the test suite in real
+shells (fish in CI on Ubuntu); the zsh script is syntax-checked there. Windows
 PowerShell 5.1 does not call completers for a bare `--`, so type one letter
-after it (`--h`). Task text, numbers, `+project` and `@context` names are not
-completed yet (see the roadmap).
+after it (`--h`). Task text and task numbers are not completed.
 
 ## todo.txt compatibility
 

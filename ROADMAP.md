@@ -21,7 +21,7 @@ Estimates are focused working hours, including tests and docs.
 ## v0.3 - shell completions (about 3 h)
 
 - [x] Completion scripts for bash, zsh, fish and PowerShell (2 h)
-- [ ] Complete `+project` and `@context` names from the current file (1 h)
+- [x] Complete `+project` and `@context` names from the current file (1 h)
 
 ## v0.4 - sync-friendly merge of concurrent edits (about 6 h)
 
