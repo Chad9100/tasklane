@@ -46,7 +46,8 @@ Estimates are focused working hours, including tests and docs.
 
 ## v1.0 - PyPI release (about 2 h)
 
-- [ ] Trusted-publishing release workflow and versioned changelog (1 h)
-- [ ] Publish to PyPI, `pipx install tasklane` instructions, final docs pass (1 h)
+- [x] Trusted-publishing release workflow and versioned changelog (1 h)
+- [ ] Configure the pending publisher on pypi.org, tag and publish the first release (0.5 h; first half of the 1 h item, split)
+- [ ] `pipx install tasklane` instructions and final docs pass (0.5 h; second half)
 
 **Total planned after v0.1: about 25 hours.**

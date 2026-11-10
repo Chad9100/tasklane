@@ -689,5 +689,23 @@ Layout:
 The tests never touch your real `~/todo.txt`: every test points `--file` or
 `TASKLANE_FILE` at a temporary folder and redirects `HOME`.
 
+### Releasing
+
+Changes are listed in [CHANGELOG.md](CHANGELOG.md). To release: set the new
+version in `pyproject.toml` and `src/tasklane/__init__.py`, add a
+`## [X.Y.Z]` section to the changelog (a test checks all three agree), commit,
+then push a tag:
+
+```sh
+git tag vX.Y.Z && git push origin vX.Y.Z
+```
+
+The `release` workflow checks the tag against the version, runs the tests,
+builds the sdist and wheel and uploads them to PyPI with
+[trusted publishing](https://docs.pypi.org/trusted-publishers/) (no token is
+stored). Before the first release, add a pending publisher on pypi.org for
+project `tasklane`: owner `Chad9100`, repository `tasklane`, workflow
+`release.yml`, environment `pypi`. The release workflow has not been run yet.
+
 See [ROADMAP.md](ROADMAP.md) for planned work. Licensed under the
 [MIT License](LICENSE).
