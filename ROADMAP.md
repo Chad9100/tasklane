@@ -30,7 +30,8 @@ Estimates are focused working hours, including tests and docs.
 - [x] Merge two edits of the same task that touch different fields, e.g. one side completes it and the other changes its priority (1.5 h)
 - [x] Clear conflict report: the clashing fields plus the lines as they were, as tasklane wanted them and as they are on disk (1 h; first half of a 2 h item, split)
 - [x] `--force` escape hatch (keeping a backup of the other version) (0.5 h; first half of the 1 h item, split)
-- [ ] Tests with simulated Dropbox/Syncthing edits: conflicted-copy files, touch-only rewrites, burst writes (0.5 h; second half)
+- [x] Tests with simulated Dropbox/Syncthing edits: conflicted-copy files, touch-only rewrites, burst writes (0.5 h; second half)
+- [x] `tasklane conflicts [--merge]`: find Dropbox/Syncthing conflicted copies and append their new tasks (1 h)
 
 ## v0.5 - calendar export (about 3 h)
 

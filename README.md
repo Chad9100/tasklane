@@ -577,6 +577,28 @@ backup's path.
 neither file. A sync client that only touches the file (new modification
 time, same bytes) is not a change at all.
 
+#### Conflicted copies
+
+If two devices change the file at once, Dropbox and Nextcloud keep one
+version and save the other as `todo (conflicted copy DATE).txt`, Syncthing as
+`todo.sync-conflict-DATE-TIME-ID.txt`. `tasklane conflicts` lists such copies
+next to your file and the task lines they have that it lacks; `--merge`
+appends those lines and renames each copy to `NAME.merged` (nothing is
+deleted). Without a common ancestor only lines missing from the file can be
+found, so a task edited on both sides shows up twice; remove the old one by
+hand. Real output on 2026-11-10:
+
+```
+$ tasklane conflicts
+todo (conflicted copy 2026-11-10).txt: 1 task(s) not in todo.txt
+  + 2026-11-10 Buy stamps @errands
+Run again with --merge to append these tasks and set the copies aside.
+$ tasklane conflicts --merge
+todo (conflicted copy 2026-11-10).txt: 1 task(s) not in todo.txt
+  + 2026-11-10 Buy stamps @errands
+Appended 1 task(s) from 1 copy file(s); the copies were renamed to *.merged.
+```
+
 A command reads and writes within milliseconds, so this mostly matters for the
 library API, where a `TodoFile` can live longer. Real output from a throwaway
 folder on 2026-11-10, where a sync client appends a line between `load()` and

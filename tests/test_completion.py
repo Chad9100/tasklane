@@ -86,7 +86,7 @@ def _bash() -> str | None:
 
 
 BASH_CASES = {
-    'tasklane ""': "add ls do undo pri depri edit rm archive due projects contexts report export completion",
+    'tasklane ""': "add ls do undo pri depri edit rm archive due projects contexts report export conflicts completion",
     "tasklane d": "do depri due",
     "tasklane --file x.txt l": "ls",
     "tasklane --color x.txt --c": "--color",
@@ -124,7 +124,7 @@ def test_bash_completion_runs(tmp_path):
 
 
 PS_CASES = {
-    "tasklane ": "add ls do undo pri depri edit rm archive due projects contexts report export completion",
+    "tasklane ": "add ls do undo pri depri edit rm archive due projects contexts report export conflicts completion",
     "tasklane d": "do depri due",
     "tasklane --file x.txt l": "ls",
     "tasklane --color ": "auto always never",

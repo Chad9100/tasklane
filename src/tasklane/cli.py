@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from . import __version__, completion, ical, merge, query, recur
+from . import __version__, completion, ical, copies as copies_mod, merge, query, recur
 from .storage import FileChangedError, TaskIndexError, TodoFile, atomic_write, done_path_for
 from .todo import Task, parse_task
 
@@ -391,6 +391,39 @@ def cmd_export(args, ctx: Context) -> int:
     return 0
 
 
+def cmd_conflicts(args, ctx: Context) -> int:
+    copies = copies_mod.find_copies(ctx.path)
+    if not copies:
+        print(f"No conflicted copies of {ctx.path.name} found.")
+        return 0
+    tf = ctx.load()
+    current = ctx.path.read_bytes() if ctx.path.exists() else b""
+    pending: list[tuple[Path, list[str]]] = []
+    for copy in copies:
+        lines = copies_mod.new_lines(current, copy.read_bytes())
+        for line in lines:  # later copies only add what is still missing
+            current += b"\n" + line.encode("utf-8", "surrogateescape")
+        pending.append((copy, lines))
+    for copy, lines in pending:
+        print(f"{copy.name}: {len(lines)} task(s) not in {ctx.path.name}")
+        for line in lines:
+            print(f"  + {line}")
+    if not args.merge:
+        print("Run again with --merge to append these tasks and set the copies aside.")
+        return 0
+    for _, lines in pending:
+        for line in lines:
+            tf.append_raw(line)
+    if any(lines for _, lines in pending):
+        _save(tf, ctx)
+    for copy, _ in pending:
+        os.replace(copy, copies_mod.merged_name(copy))
+    total = sum(len(lines) for _, lines in pending)
+    print(f"Appended {total} task(s) from {len(copies)} copy file(s);"
+          f" the copies were renamed to *{copies_mod.MERGED_SUFFIX}.")
+    return 0
+
+
 def cmd_completion(args, ctx: Context) -> int:
     sys.stdout.write(completion.script(args.shell, build_parser()))
     return 0
@@ -478,6 +511,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="write to PATH (atomically) instead of standard output")
     p.add_argument("--all", action="store_true", help="include completed tasks (STATUS:COMPLETED)")
     p.add_argument("--hidden", action="store_true", help="include h:1 hidden tasks")
+
+    p = command("conflicts", cmd_conflicts,
+                "list conflicted copies left by Dropbox/Syncthing; --merge appends their new tasks")
+    p.add_argument("--merge", action="store_true",
+                   help="append the tasks the file lacks and rename the copies to NAME.merged")
 
     p = command("completion", cmd_completion, "print a shell completion script (bash, zsh, fish, powershell)")
     p.add_argument("shell", choices=completion.SHELLS)
