@@ -167,3 +167,75 @@ def test_missing_file_exports_an_empty_calendar(capsysbinary, tmp_path):
     assert unfold(out) == ["BEGIN:VCALENDAR", "VERSION:2.0", f"PRODID:{ical.PRODID}",
                            "CALSCALE:GREGORIAN", "END:VCALENDAR"]
     assert not (tmp_path / "none.txt").exists()
+
+
+def rec_lines(text: str) -> list[str]:
+    return ical.vtodo(parse_task(text), TODAY)
+
+
+def test_strict_weekly_task_gets_rrule_anchored_at_due():
+    lines = rec_lines("(B) 2026-11-01 Water filter +home due:2026-11-12 rec:+1w")
+    assert "SUMMARY:Water filter +home" in lines  # rec: is now the RRULE
+    assert "DTSTART;VALUE=DATE:20261112" in lines
+    assert "DUE;VALUE=DATE:20261112" in lines
+    assert "RRULE:FREQ=WEEKLY" in lines
+    assert lines.index("DTSTART;VALUE=DATE:20261112") < lines.index("RRULE:FREQ=WEEKLY")
+
+
+@pytest.mark.parametrize(
+    ("rec", "expected"),
+    [
+        ("+3d", "FREQ=DAILY;INTERVAL=3"),
+        ("+2w", "FREQ=WEEKLY;INTERVAL=2"),
+        ("+1m", "FREQ=MONTHLY"),
+        ("+6M", "FREQ=MONTHLY;INTERVAL=6"),
+        ("+1y", "FREQ=YEARLY"),
+    ],
+)
+def test_rrule_frequencies(rec, expected):
+    assert ical.rrule(parse_task(f"Task due:2026-11-28 rec:{rec}")) == expected
+
+
+def test_threshold_stays_dtstart_for_day_and_week_rules():
+    lines = rec_lines("Timesheet t:2026-11-07 due:2026-11-09 rec:+1w")
+    assert "DTSTART;VALUE=DATE:20261107" in lines
+    assert "RRULE:FREQ=WEEKLY" in lines
+    assert sum(line.startswith("DTSTART") for line in lines) == 1
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Water plants due:2026-11-12 rec:1w",  # counted from completion day
+        "Water plants rec:+1w",  # nothing to anchor the series
+        "Pay rent due:2026-01-31 rec:+1m",  # Feb 28, then Mar 28: clamping drifts
+        "Birthday due:2028-02-29 rec:+1y",
+        "Report t:2026-11-25 due:2026-12-05 rec:+1m",  # day gap vs month step
+        "Broken due:2026-11-12 rec:+0w",
+        "x 2026-11-08 Paid due:2026-11-12 rec:+1w",
+    ],
+)
+def test_unmappable_recurrences_export_the_current_occurrence(text):
+    task = parse_task(text)
+    assert ical.rrule(task) is None
+    lines = ical.vtodo(task, TODAY)
+    assert not any(line.startswith("RRULE") for line in lines)
+    assert any(line.startswith("SUMMARY:") and "rec:" in line for line in lines)
+
+
+def test_month_rule_with_threshold_on_due_day_is_mapped():
+    assert ical.rrule(parse_task("Rent t:2026-11-28 due:2026-11-28 rec:+1m")) == "FREQ=MONTHLY"
+
+
+def test_series_uid_survives_completing_an_occurrence(capsysbinary, tmp_path):
+    path = tmp_path / "todo.txt"
+    write(path, "2026-11-01 Water filter +home due:2026-11-09 rec:+1w\n")
+    _, before, _ = export(capsysbinary, path)
+    assert main(["--file", str(path), "do", "1"], today=TODAY) == 0
+    capsysbinary.readouterr()
+    _, after, _ = export(capsysbinary, path)
+    [old], [new] = todos(before), todos(after)
+    assert old["RRULE"] == new["RRULE"] == "FREQ=WEEKLY"
+    assert new["DUE;VALUE=DATE"] == "20261116"
+    assert old["UID"] == new["UID"]
+    assert ical.uid(parse_task("2026-11-01 Water filter +home due:2026-11-09 rec:1w")) != old["UID"]

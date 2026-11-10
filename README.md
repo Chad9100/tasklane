@@ -306,13 +306,13 @@ tasks. The todo file is only read.
 | `(A)` .. `(I)` | `PRIORITY` 1 .. 9 (`(J)` to `(Z)` are 9; a done task uses its `pri:` tag) |
 | `+project`, `@context` | `CATEGORIES` |
 | creation / completion date | `CREATED` / `COMPLETED`, `STATUS:COMPLETED` |
+| strict `rec:+3d`, `rec:+2w`, `rec:+1m`, `rec:+1y` | `RRULE:FREQ=DAILY;INTERVAL=3` etc., anchored at `DTSTART` (see below) |
 
 Each `UID` is a hash of the creation date and the description, so importing a
 fresh export again updates the same entries, even after `archive` renumbered
 the lines or the priority or due date changed; editing the description makes
 a new entry. Lines end in CRLF and are folded at 75 bytes as the standard
-requires. Recurring tasks are exported as their current occurrence (`RRULE`
-mapping is on the roadmap). Real output from a throwaway folder on 2026-11-10
+requires. Real output from a throwaway folder on 2026-11-10
 (line endings shown as LF):
 
 ```text
@@ -350,6 +350,61 @@ END:VCALENDAR
 
 $ tasklane export --ics --all -o tasks.ics +home
 Exported 1 task(s) to tasks.ics
+```
+
+#### Recurring tasks in the calendar
+
+A strict recurring task with a due date becomes a repeating series: `rec:` is
+turned into an `RRULE` and dropped from the summary, and the series starts at
+the `t:` date (or the due date when there is none, because an `RRULE` needs a
+`DTSTART`). The series keeps one `UID` across occurrences, so after `do`
+moves the task to its next due date a fresh import moves the series forward
+instead of adding a second one.
+
+A recurrence is only mapped when the calendar would produce the same dates as
+`tasklane do`. These stay single entries with `rec:` left in the summary:
+
+* normal `rec:1w` rules, which count from the day you complete the task;
+* strict rules without a valid `due:` date, and completed tasks;
+* month and year steps from day 29, 30 or 31, where `tasklane` clamps to the
+  month end and then keeps the shorter day (Jan 31, Feb 28, Mar 28) but an
+  `RRULE` would skip short months;
+* month and year steps with a `t:` date before `due:`, because `tasklane`
+  keeps the day gap while a calendar keeps the start date's day of month.
+
+Real output on 2026-11-10:
+
+```text
+$ cat todo.txt
+2026-11-01 Change the water filter +home t:2026-11-06 due:2026-11-09 rec:+1w
+2026-11-02 Send timesheet +work due:2026-11-13 rec:1w
+
+$ tasklane export --ics
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//tasklane//tasklane 0.1.0//EN
+CALSCALE:GREGORIAN
+BEGIN:VTODO
+UID:7179a875c40fd8994bd7@tasklane
+DTSTAMP:20261110T000000Z
+CREATED:20261101T000000Z
+SUMMARY:Change the water filter +home
+DTSTART;VALUE=DATE:20261106
+DUE;VALUE=DATE:20261109
+RRULE:FREQ=WEEKLY
+CATEGORIES:home
+STATUS:NEEDS-ACTION
+END:VTODO
+BEGIN:VTODO
+UID:356b0221e9970dfd557e@tasklane
+DTSTAMP:20261110T000000Z
+CREATED:20261102T000000Z
+SUMMARY:Send timesheet +work rec:1w
+DUE;VALUE=DATE:20261113
+CATEGORIES:work
+STATUS:NEEDS-ACTION
+END:VTODO
+END:VCALENDAR
 ```
 
 ### Shell completion
