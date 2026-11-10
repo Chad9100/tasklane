@@ -470,7 +470,8 @@ def edited_after_load(monkeypatch):
 
 
 def test_do_refuses_to_overwrite_a_concurrent_edit(run, sample, edited_after_load):
-    synced = SAMPLE.replace("Buy milk", "Buy oat milk").encode("utf-8")
+    # The phone completed the same task, on another day.
+    synced = SAMPLE.replace("2026-11-02 Buy milk", "x 2026-11-08 2026-11-02 Buy milk").encode("utf-8")
     edited_after_load(synced)
     code, out, err = run("do", "2")
     assert code == 1
@@ -508,10 +509,11 @@ def test_rerun_after_conflict_applies_to_new_contents(run, sample, edited_after_
     from tasklane import cli
 
     real_load = cli.Context.load
-    edited_after_load(SAMPLE.replace("Buy milk", "Buy oat milk").encode("utf-8"))
-    assert run("do", "2")[0] == 1
+    edited = SAMPLE.replace("2026-11-02 Buy milk", "(A) 2026-11-02 Buy oat milk")
+    edited_after_load(edited.encode("utf-8"))
+    assert run("pri", "2", "B")[0] == 1  # both set a priority
     monkeypatch.setattr(cli.Context, "load", real_load)
-    code, out, _ = run("do", "2")
-    assert code == 0 and "Completed 2" in out
+    code, _, _ = run("pri", "2", "B")
+    assert code == 0
     text = sample.read_text(encoding="utf-8")
-    assert "x 2026-11-09 2026-11-02 Buy oat milk" in text
+    assert "(B) 2026-11-02 Buy oat milk" in text

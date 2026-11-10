@@ -9,7 +9,8 @@ A file read with :meth:`TodoFile.load` remembers a fingerprint (SHA-256 of the
 bytes plus their modification time). :meth:`TodoFile.save` refuses to replace
 the file if another program, an editor or a sync client changed it in the
 meantime without merging: changes to different lines are combined with a
-three-way merge (see :mod:`tasklane.merge`), and only edits of the same lines,
+three-way merge (see :mod:`tasklane.merge`), as are edits of different fields
+of the same task; only clashing edits of the same task,
 a deleted file or one created by someone else raise :class:`FileChangedError`
 instead of silently discarding those edits.
 """

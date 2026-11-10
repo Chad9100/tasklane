@@ -6,7 +6,7 @@ import pytest
 
 from tasklane import storage
 from tasklane.cli import main
-from tasklane.merge import join_merged, merge3, merge_bytes
+from tasklane.merge import join_merged, merge3, merge_bytes, merge_task_line
 from tasklane.storage import TodoFile
 from tasklane.todo import parse_task
 
@@ -61,6 +61,59 @@ def test_ours_at_follows_lines_moved_by_their_insertions_and_deletions():
     result = merge3(base, ours, theirs)
     assert result.clean and result.lines == ["new", "a", "C"]
     assert result.ours_at == [1, None, 2]
+
+
+# -- merge_task_line: one task, field by field ------------------------------
+def test_completing_and_reprioritizing_the_same_task_merge():
+    base = "(B) 2026-11-01 Pay rent"
+    ours = "x 2026-11-10 2026-11-01 Pay rent pri:B"  # tasklane completed it
+    theirs = "(A) 2026-11-01 Pay rent"                # the phone raised it
+    assert merge_task_line(base, ours, theirs) == "x 2026-11-10 2026-11-01 Pay rent pri:A"
+    # The other way round: the priority lands on the done task's pri: tag too.
+    assert merge_task_line(base, theirs, ours) == "x 2026-11-10 2026-11-01 Pay rent pri:A"
+
+
+def test_undo_on_one_side_keeps_the_other_sides_priority():
+    base = "x 2026-11-10 Pay rent pri:B"
+    assert merge_task_line(base, "(B) Pay rent", "x 2026-11-10 Pay rent pri:A") == "(A) Pay rent"
+
+
+def test_words_changed_in_different_places_are_kept():
+    assert merge_task_line("Call Bob", "Call Bob +work", "(A) Call Bob @phone") == (
+        "(A) Call Bob +work @phone"
+    )
+    assert merge_task_line("Pay rent", "Pay the rent", "Pay rent now") == "Pay the rent now"
+    # Unusual spacing survives.
+    assert merge_task_line("Pay  rent", "(A) Pay  rent", "Pay  rent now") == "(A) Pay  rent now"
+    assert merge_task_line(
+        "2026-11-01 Pay rent", "2026-11-01 Pay rent due:2026-11-20", "x 2026-11-10 2026-11-01 Pay rent"
+    ) == "x 2026-11-10 2026-11-01 Pay rent due:2026-11-20"
+
+
+@pytest.mark.parametrize(
+    "base, ours, theirs",
+    [
+        ("Pay rent", "(A) Pay rent", "(B) Pay rent"),            # same field
+        ("Pay rent", "Pay big rent", "Pay small rent"),          # same place in the text
+        ("Pay rent", "", "(A) Pay rent"),                        # removed vs edited
+        ("x 2026-11-09 Pay rent", "x 2026-11-10 Pay rent", "x 2026-11-08 Pay rent"),
+    ],
+)
+def test_same_field_changes_do_not_merge(base, ours, theirs):
+    assert merge_task_line(base, ours, theirs) is None
+
+
+def test_merge3_resolver_is_only_asked_about_equal_length_regions():
+    calls = []
+
+    def resolve(b, o, t):
+        calls.append((b, o, t))
+        return o + t
+
+    result = merge3(["a", "b"], ["A", "B"], ["a", "b2"], resolve)
+    assert result.clean and result.lines == ["A", "Bb2"] and calls == [("b", "B", "b2")]
+    result = merge3(["a"], ["A", "extra"], ["a2"], resolve)
+    assert not result.clean
 
 
 # -- merge_bytes: whole files ------------------------------------------------
@@ -120,10 +173,10 @@ def test_conflicting_save_writes_nothing(tmp_path):
     path.write_bytes(b"one\n")
     tf = TodoFile.load(path)
     tf.set(1, parse_task("(A) one"))
-    path.write_bytes(b"one, edited\n")
+    path.write_bytes(b"(B) one\n")  # both set the priority
     with pytest.raises(storage.FileChangedError, match="in the same lines"):
         tf.save()
-    assert path.read_bytes() == b"one, edited\n"
+    assert path.read_bytes() == b"(B) one\n"
 
 
 # -- command line ------------------------------------------------------------
@@ -169,3 +222,37 @@ def test_cli_archive_merges_before_writing_done_txt(todo_file, capsys):
     assert code == 0
     assert todo_file.read_bytes() == b"2026-11-09 From the phone\n2026-11-02 Buy milk\n"
     assert (todo_file.parent / "done.txt").read_bytes() == b"x 2026-11-08 Old\n"
+
+
+def test_merge_bytes_merges_fields_and_keeps_our_line_ending():
+    base = b"(B) Pay rent\r\nCall Bob\r\n"
+    ours = b"x 2026-11-10 Pay rent pri:B\r\nCall Bob\r\n"
+    theirs = b"(A) Pay rent\nCall Bob\r\n"
+    result = merge_bytes(base, ours, theirs)
+    assert result.clean and join_merged(result) == b"x 2026-11-10 Pay rent pri:A\r\nCall Bob\r\n"
+    # Bytes that are not UTF-8 are never merged field by field.
+    assert not merge_bytes(b"\xff task\n", b"(A) \xff task\n", b"\xff task +x\n").clean
+
+
+def test_cli_do_merges_with_a_priority_change_from_the_phone(tmp_path, monkeypatch, capsys):
+    from tasklane import cli
+
+    path = tmp_path / "todo.txt"
+    path.write_bytes(b"(C) 2026-11-01 Write report\n(B) 2026-11-02 Buy milk\n")
+    real_load = cli.Context.load
+
+    def load_then_sync(self):
+        tf = real_load(self)
+        self.path.write_bytes(b"(C) 2026-11-01 Write report\n(A) 2026-11-02 Buy milk +home\n")
+        return tf
+
+    monkeypatch.setattr(cli.Context, "load", load_then_sync)
+    code = main(["--file", str(path), "do", "2"])
+    _, err = capsys.readouterr()
+    assert code == 0 and "merged with changes" in err
+    line = path.read_text(encoding="utf-8").splitlines()[1]
+    assert line.startswith("x ") and line.endswith(" 2026-11-02 Buy milk +home pri:A")
+    # undo brings back the priority the phone set.
+    monkeypatch.setattr(cli.Context, "load", real_load)
+    assert main(["--file", str(path), "undo", "2"]) == 0
+    assert path.read_text(encoding="utf-8").splitlines()[1] == "(A) 2026-11-02 Buy milk +home"

@@ -125,14 +125,14 @@ def test_save_refuses_when_another_program_changed_the_same_line(tmp_path):
     path.write_bytes(b"one\ntwo\n")
     tf = TodoFile.load(path)
     tf.set(2, parse_task("(A) two"))
-    path.write_bytes(b"one\ntwo, edited in an editor\n")
+    path.write_bytes(b"one\n(B) two, edited in an editor\n")  # a different priority
     with pytest.raises(storage.FileChangedError, match="todo.txt was changed on disk") as info:
         tf.save()
     assert "in the same lines" in str(info.value)
     [conflict] = info.value.conflicts
     assert (conflict.base, conflict.ours, conflict.theirs) == (
-        [b"two\n"], [b"(A) two\n"], [b"two, edited in an editor\n"])
-    assert path.read_bytes() == b"one\ntwo, edited in an editor\n"
+        [b"two\n"], [b"(A) two\n"], [b"(B) two, edited in an editor\n"])
+    assert path.read_bytes() == b"one\n(B) two, edited in an editor\n"
     assert os.listdir(tmp_path) == ["todo.txt"]  # no stray temp file
 
 

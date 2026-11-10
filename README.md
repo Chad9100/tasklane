@@ -517,14 +517,22 @@ program's:
 * Changes to different lines are combined, including neighbouring lines.
 * Tasks that both sides added at the same place (typically both appended one)
   are all kept, tasklane's first.
+* Two edits of the *same* task are merged field by field: done state and
+  completion date, priority, creation date, and the words of the description.
+  So `tasklane do 2` while your phone raises task 2 from `(B)` to `(A)` gives
+  `x 2026-11-10 ... pri:A`, and `undo` later restores `(A)`. Words added in
+  different places are all kept (one side appends `+work`, the other
+  `due:2026-11-20`), as is unusual spacing.
 * Line endings stay with their lines; a BOM or a missing final newline is kept
   unless one side changed it.
 * If lines moved (say the other program added a task at the top), the command
   prints the new numbers, and a note on stderr says that a merge happened:
   `tasklane: merged with changes another program made to todo.txt meanwhile`.
 
-Only when both sides changed the *same* lines differently (or the file was
-deleted, or created by someone else) does tasklane write nothing: it keeps the
+Only when both sides changed the *same field* of a task differently (two
+different priorities or completion dates, different words at the same spot,
+one side removing a task the other edited), or the file was deleted or created
+by someone else, does tasklane write nothing: it keeps the
 other program's version and exits with code `1` with
 `tasklane: error: todo.txt was changed on disk (...) in the same lines since
 tasklane read it; nothing was written`, followed by a hint to run the command
@@ -563,9 +571,10 @@ $ cat todo.txt
 
 A conflicting `save()` raises `FileChangedError`; its `conflicts` list holds
 each overlapping region as base, ours and theirs lines. The merge itself is
-`tasklane.merge.merge3`, which works on any sequences of lines. Merging two
-edits of the same task that touch different fields, a readable conflict report
-and a `--force` option are planned (see the roadmap).
+`tasklane.merge.merge3`, which works on any sequences of lines, and
+`tasklane.merge.merge_task_line(base, ours, theirs)` merges one task field by
+field (it returns `None` on a conflict). A readable conflict report and a
+`--force` option are planned (see the roadmap).
 
 ## todo.txt compatibility
 
@@ -588,7 +597,8 @@ and a `--force` option are planned (see the roadmap).
   half-written `todo.txt`. `archive` writes `done.txt` before `todo.txt`: an
   interruption can at worst duplicate a task, never lose it.
 * Edits another program made since tasklane read the file are merged line by
-  line, and a write is refused only if both changed the same lines (see
+  line (and field by field within a task), and a write is refused only if both
+  changed the same part of a task (see
   [Edits from other programs](#edits-from-other-programs)).
 * `rm` blanks the line instead of deleting it (like todo.sh's default) so line
   numbers stay stable; `archive` removes the blank lines.
