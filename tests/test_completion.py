@@ -23,9 +23,9 @@ def test_spec_reflects_the_real_parser():
     assert {"archive", "due", "report", "completion"} <= set(names)
     ls = next(c for c in spec.commands if c.name == "ls")
     assert {"--all", "--hidden", "--json", "--file", "--color"} <= set(ls.options)
-    assert set(spec.value_options) == {"--file", "--color", "--days"}
+    assert set(spec.value_options) == {"--file", "--color", "--days", "--output"}
     assert spec.option_choices == {"--color": ["auto", "always", "never"]}
-    assert spec.file_options == ["--file"]
+    assert spec.file_options == ["--file", "--output"]
     shells = next(c for c in spec.commands if c.name == "completion")
     assert shells.positional_choices == list(completion.SHELLS)
 
@@ -86,7 +86,7 @@ def _bash() -> str | None:
 
 
 BASH_CASES = {
-    'tasklane ""': "add ls do undo pri depri edit rm archive due projects contexts report completion",
+    'tasklane ""': "add ls do undo pri depri edit rm archive due projects contexts report export completion",
     "tasklane d": "do depri due",
     "tasklane --file x.txt l": "ls",
     "tasklane --color x.txt --c": "--color",
@@ -124,7 +124,7 @@ def test_bash_completion_runs(tmp_path):
 
 
 PS_CASES = {
-    "tasklane ": "add ls do undo pri depri edit rm archive due projects contexts report completion",
+    "tasklane ": "add ls do undo pri depri edit rm archive due projects contexts report export completion",
     "tasklane d": "do depri due",
     "tasklane --file x.txt l": "ls",
     "tasklane --color ": "auto always never",

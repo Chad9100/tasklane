@@ -31,7 +31,7 @@ Estimates are focused working hours, including tests and docs.
 
 ## v0.5 - calendar export (about 3 h)
 
-- [ ] `tasklane export --ics` writing VTODO entries with due dates and priorities (2 h)
+- [x] `tasklane export --ics` writing VTODO entries with due dates and priorities (2 h)
 - [ ] Map recurring tasks to RRULE where possible (1 h)
 
 ## v0.6 - interactive TUI (about 8 h)

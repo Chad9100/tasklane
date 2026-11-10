@@ -51,6 +51,7 @@ Completed tasks are moved by `archive` to `done.txt` in the same folder.
 | `due [--days N]` | Overdue tasks plus tasks due within N days (default 7). `--json` available. |
 | `projects` / `contexts` | List the `+projects` / `@contexts` in use. |
 | `report` | Open/done counts per project (done includes `done.txt`). `--json` available. |
+| `export --ics [FILTER...]` | Write open tasks as iCalendar `VTODO` entries for calendar and task apps; `-o FILE` writes a file, `--all` adds done tasks, `--hidden` adds `h:1` tasks (see [Calendar export](#calendar-export)). |
 | `completion SHELL` | Print a completion script for `bash`, `zsh`, `fish` or `powershell` (see [Shell completion](#shell-completion)). |
 
 The number in front of each task is its line in `todo.txt`. Numbers stay the
@@ -287,6 +288,70 @@ TOTAL        3      0
 be completed, edited and archived by number like any other task. The file
 itself is never changed by hiding.
 
+### Calendar export
+
+`tasklane export --ics` prints your tasks as an iCalendar (RFC 5545) file of
+`VTODO` entries, which Thunderbird, Nextcloud Tasks, Outlook and other
+calendar or task apps can import. `-o tasks.ics` writes a file instead
+(atomically, so a calendar app reading it never sees half a file). Filters
+work as in `ls`; by default open tasks are exported, including those with a
+future `t:` date, while `--all` adds completed tasks and `--hidden` adds `h:1`
+tasks. The todo file is only read.
+
+| todo.txt | iCalendar |
+| --- | --- |
+| description | `SUMMARY` (without the `due:` and `t:` tags) |
+| `due:YYYY-MM-DD` | `DUE` (all-day date) |
+| `t:YYYY-MM-DD` | `DTSTART` (all-day date; left out if it is after `due:`) |
+| `(A)` .. `(I)` | `PRIORITY` 1 .. 9 (`(J)` to `(Z)` are 9; a done task uses its `pri:` tag) |
+| `+project`, `@context` | `CATEGORIES` |
+| creation / completion date | `CREATED` / `COMPLETED`, `STATUS:COMPLETED` |
+
+Each `UID` is a hash of the creation date and the description, so importing a
+fresh export again updates the same entries, even after `archive` renumbered
+the lines or the priority or due date changed; editing the description makes
+a new entry. Lines end in CRLF and are folded at 75 bytes as the standard
+requires. Recurring tasks are exported as their current occurrence (`RRULE`
+mapping is on the roadmap). Real output from a throwaway folder on 2026-11-10
+(line endings shown as LF):
+
+```text
+$ cat todo.txt
+(A) 2026-11-01 Renew passport +travel @errands due:2026-11-12
+2026-11-02 Book ski trip +winter t:2026-12-01 due:2026-12-20
+x 2026-11-08 2026-11-01 Pay rent +home pri:B
+
+$ tasklane export --ics
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//tasklane//tasklane 0.1.0//EN
+CALSCALE:GREGORIAN
+BEGIN:VTODO
+UID:f723c74a73090538a376@tasklane
+DTSTAMP:20261110T000000Z
+CREATED:20261101T000000Z
+SUMMARY:Renew passport +travel @errands
+DUE;VALUE=DATE:20261112
+PRIORITY:1
+CATEGORIES:travel,errands
+STATUS:NEEDS-ACTION
+END:VTODO
+BEGIN:VTODO
+UID:7e81c0679fc4c553cedb@tasklane
+DTSTAMP:20261110T000000Z
+CREATED:20261102T000000Z
+SUMMARY:Book ski trip +winter
+DTSTART;VALUE=DATE:20261201
+DUE;VALUE=DATE:20261220
+CATEGORIES:winter
+STATUS:NEEDS-ACTION
+END:VTODO
+END:VCALENDAR
+
+$ tasklane export --ics --all -o tasks.ics +home
+Exported 1 task(s) to tasks.ics
+```
+
 ### Shell completion
 
 `tasklane completion SHELL` prints a completion script for commands, options,
@@ -487,6 +552,7 @@ Layout:
 * `src/tasklane/recur.py` handles `rec:` rules and month arithmetic.
 * `src/tasklane/query.py` does filtering, sorting, due views and reports.
 * `src/tasklane/completion.py` generates shell completion scripts from the parser.
+* `src/tasklane/ical.py` turns tasks into iCalendar `VTODO` entries.
 * `src/tasklane/cli.py` is the argparse front end; `main(argv, today=...)`
   accepts an injected date for tests.
 

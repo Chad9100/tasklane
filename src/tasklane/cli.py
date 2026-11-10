@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from . import __version__, completion, query, recur
-from .storage import FileChangedError, TaskIndexError, TodoFile, done_path_for
+from . import __version__, completion, ical, query, recur
+from .storage import FileChangedError, TaskIndexError, TodoFile, atomic_write, done_path_for
 from .todo import Task, parse_task
 
 
@@ -347,6 +347,29 @@ def cmd_report(args, ctx: Context) -> int:
     return 0
 
 
+def cmd_export(args, ctx: Context) -> int:
+    tf = ctx.load()
+    chosen = [
+        (n, t)
+        for n, t in tf.tasks()
+        if (args.all or not t.done) and (args.hidden or not t.hidden) and query.matches(t, args.terms)
+    ]
+    data = ical.calendar((t for _, t in chosen), ctx.today).encode("utf-8", "surrogateescape")
+    if args.output is None or args.output == "-":
+        sys.stdout.flush()
+        buffer = getattr(sys.stdout, "buffer", None)
+        if buffer is None:  # pragma: no cover - a text-only stream
+            sys.stdout.write(data.decode("utf-8", "surrogateescape"))
+        else:
+            buffer.write(data)
+            buffer.flush()
+        return 0
+    out = Path(args.output).expanduser()
+    atomic_write(out, data)
+    print(f"Exported {len(chosen)} task(s) to {out}", file=sys.stderr)
+    return 0
+
+
 def cmd_completion(args, ctx: Context) -> int:
     sys.stdout.write(completion.script(args.shell, build_parser()))
     return 0
@@ -422,6 +445,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = command("report", cmd_report, "open/done counts per project (done includes done.txt)")
     p.add_argument("--json", action="store_true", help="print JSON")
 
+    p = command("export", cmd_export, "export tasks as an iCalendar file of VTODO entries")
+    p.add_argument("terms", nargs="*", metavar="FILTER", help="only export matching tasks (same terms as ls)")
+    fmt = p.add_mutually_exclusive_group(required=True)
+    fmt.add_argument("--ics", action="store_true", help="iCalendar (RFC 5545) VTODO format")
+    p.add_argument("-o", "--output", metavar="PATH",
+                   help="write to PATH (atomically) instead of standard output")
+    p.add_argument("--all", action="store_true", help="include completed tasks (STATUS:COMPLETED)")
+    p.add_argument("--hidden", action="store_true", help="include h:1 hidden tasks")
+
     p = command("completion", cmd_completion, "print a shell completion script (bash, zsh, fish, powershell)")
     p.add_argument("shell", choices=completion.SHELLS)
     return parser
@@ -441,7 +473,7 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
     if extra:
         # "ls +home -milk": argparse sees "-milk" as an unknown option, so hand
         # such exclusion terms (and anything after them) back to the filter.
-        if getattr(args, "command", None) == "ls" and not any(e.startswith("--") for e in extra):
+        if getattr(args, "command", None) in ("ls", "export") and not any(e.startswith("--") for e in extra):
             args.terms = [*args.terms, *extra]
         else:
             parser.error(f"unrecognized arguments: {' '.join(extra)}")
