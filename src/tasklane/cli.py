@@ -81,6 +81,7 @@ class Context:
     path: Path
     today: date
     color: bool
+    force: bool = False
 
     @property
     def done_path(self) -> Path:
@@ -94,10 +95,14 @@ class Context:
         return f"{n:>{width}} {line}"
 
 
-def _save(tf: TodoFile) -> None:
-    """Save, telling the user when edits from another program were merged in."""
-    tf.save()
-    if tf.merged:
+def _save(tf: TodoFile, ctx: Context) -> None:
+    """Save, telling the user when edits from another program were merged in
+    or (with --force) overwritten after a backup."""
+    tf.save(force=ctx.force)
+    if tf.backup is not None:
+        print(f"tasklane: --force: overwrote the other version of {tf.path.name};"
+              f" it is saved as {tf.backup}", file=sys.stderr)
+    elif tf.merged:
         print(f"tasklane: merged with changes another program made to {tf.path.name}"
               " meanwhile", file=sys.stderr)
 
@@ -125,7 +130,7 @@ def cmd_add(args, ctx: Context) -> int:
         task.creation_date = ctx.today
     tf = ctx.load()
     n = tf.append(task)
-    _save(tf)
+    _save(tf, ctx)
     n = tf.number(n)
     print(f"Added {n}: {tf.text(n)}")
     return 0
@@ -194,7 +199,7 @@ def cmd_do(args, ctx: Context) -> int:
         report.append(("Completed {n}: {text}", n))
         if following is not None:
             report.append(("Recurring: added {n}: {text}", tf.append(following)))
-    _save(tf)
+    _save(tf, ctx)
     for template, n in report:
         n = tf.number(n)
         print(template.format(n=n, text=tf.text(n) if "{text}" in template else ""))
@@ -208,7 +213,7 @@ def cmd_undo(args, ctx: Context) -> int:
         raise CliError(f"task {args.number} is not done")
     task.uncomplete()
     tf.set(args.number, task)
-    _save(tf)
+    _save(tf, ctx)
     n = tf.number(args.number)
     print(f"Reopened {n}: {tf.text(n)}")
     return 0
@@ -224,7 +229,7 @@ def cmd_pri(args, ctx: Context) -> int:
         raise CliError(f"task {args.number} is done; undo it first")
     task.priority = letter
     tf.set(args.number, task)
-    _save(tf)
+    _save(tf, ctx)
     n = tf.number(args.number)
     print(f"Prioritized {n}: {tf.text(n)}")
     return 0
@@ -238,7 +243,7 @@ def cmd_depri(args, ctx: Context) -> int:
         return 0
     task.priority = None
     tf.set(args.number, task)
-    _save(tf)
+    _save(tf, ctx)
     n = tf.number(args.number)
     print(f"Deprioritized {n}: {tf.text(n)}")
     return 0
@@ -258,7 +263,7 @@ def cmd_edit(args, ctx: Context) -> int:
     elif not new.done and new.priority is None:
         new.priority = old.priority
     tf.set(args.number, new)
-    _save(tf)
+    _save(tf, ctx)
     n = tf.number(args.number)
     print(f"Edited {n}: {tf.text(n)}")
     return 0
@@ -270,7 +275,7 @@ def cmd_rm(args, ctx: Context) -> int:
     if not args.yes:
         raise CliError(f"refusing to remove task {args.number} without --yes: {raw}")
     tf.blank(args.number)
-    _save(tf)
+    _save(tf, ctx)
     print(f"Removed {tf.number(args.number)}: {raw}")
     return 0
 
@@ -283,12 +288,12 @@ def cmd_archive(args, ctx: Context) -> int:
         print("Nothing to archive.")
         return 0
     if moved:
-        tf.bytes_to_save()  # merge before touching done.txt, so a conflict changes nothing
+        tf.bytes_to_save(force=ctx.force)  # merge before touching done.txt, so a conflict changes nothing
         done = TodoFile.load(ctx.done_path)
         for raw in moved:
             done.append_raw(raw)
         done.save()  # write done.txt first: a crash can duplicate, never lose
-    _save(tf)
+    _save(tf, ctx)
     print(f"Archived {len(moved)} task(s) to {ctx.done_path.name}; line numbers renumbered.")
     return 0
 
@@ -399,14 +404,18 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--color", choices=["auto", "always", "never"], default=default if default is argparse.SUPPRESS else "auto",
                        help="colorize output (default: auto = only on a terminal without NO_COLOR)")
 
+    force_help = ("if the file changed on disk in a way that cannot be merged, overwrite it"
+                  " after saving the other version as todo.txt.theirs-DATE-TIME.bak")
     parser = argparse.ArgumentParser(
         prog="tasklane",
         description="A todo.txt task manager for the command line.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("--force", action="store_true", default=False, help=force_help)
     add_common(parser, None)
     common = argparse.ArgumentParser(add_help=False)
     add_common(common, argparse.SUPPRESS)
+    common.add_argument("--force", action="store_true", default=argparse.SUPPRESS, help=force_help)
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     def command(name, func, help_text):
@@ -500,7 +509,8 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
     color = use_color(args.color, sys.stdout, os.environ)
     if color:
         _enable_windows_ansi()
-    ctx = Context(resolve_path(args.file, os.environ), today or date.today(), color)
+    ctx = Context(resolve_path(args.file, os.environ), today or date.today(), color,
+                  getattr(args, "force", False))
     try:
         return args.func(args, ctx)
     except (CliError, TaskIndexError) as exc:
@@ -512,7 +522,8 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
             for line in merge.describe_conflict(conflict):
                 print(f"tasklane: {line}", file=sys.stderr)
         print("tasklane: the other program's version (an editor, a sync client) was kept;"
-              " run the command again to apply it to the new contents", file=sys.stderr)
+              " run the command again to apply it to the new contents"
+              " (or add --force to overwrite it; a backup is kept)", file=sys.stderr)
         return 1
     except OSError as exc:
         print(f"tasklane: error: {exc}", file=sys.stderr)

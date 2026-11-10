@@ -553,6 +553,26 @@ tasklane:   on disk:  x 2026-11-08 2026-11-02 Buy milk +home @shop
 tasklane: the other program's version (an editor, a sync client) was kept; run the command again to apply it to the new contents
 ```
 
+If you would rather have your version win, add `--force` (before or after the
+command). The file on disk is first copied to `todo.txt.theirs-DATE-TIME.bak`
+beside it, then overwritten; nothing is lost and you can merge by hand. A
+change that merges cleanly never needs `--force` and makes no backup. Real
+output from 2026-11-10 with the same simulated phone edit, using a file in a
+throwaway folder (the stamp in the file name is the local time):
+
+```console
+$ tasklane do 2 --force
+tasklane: --force: overwrote the other version of todo.txt; it is saved as todo.txt.theirs-20261110-123843.bak
+Completed 2: x 2026-11-10 2026-11-02 Buy milk +home @shop
+
+$ cat todo.txt.theirs-20261110-123843.bak
+(A) 2026-11-01 Renew passport +travel due:2026-11-12
+x 2026-11-08 2026-11-02 Buy milk +home @shop
+```
+
+In the library, `tf.save(force=True)` does the same and sets `tf.backup` to the
+backup's path.
+
 `archive` merges before it touches `done.txt`, so a conflict changes
 neither file. A sync client that only touches the file (new modification
 time, same bytes) is not a change at all.
@@ -593,7 +613,7 @@ each overlapping region as base, ours and theirs lines. The merge itself is
 field (it returns `None` on a conflict). `tasklane.merge.describe_conflict`
 turns one conflict into the report lines shown above, and
 `clashing_fields(base, ours, theirs)` names what two edits of a task both
-changed. A `--force` option to overwrite anyway is planned (see the roadmap).
+changed. `save(force=True)` overwrites anyway after writing the backup.
 
 ## todo.txt compatibility
 

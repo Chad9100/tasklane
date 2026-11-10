@@ -524,3 +524,72 @@ def test_rerun_after_conflict_applies_to_new_contents(run, sample, edited_after_
     assert code == 0
     text = sample.read_text(encoding="utf-8")
     assert "(B) 2026-11-02 Buy oat milk" in text
+
+
+# -- --force: overwrite an unmergeable edit, keeping the other version --------
+def backups(todo):
+    return sorted(todo.parent.glob("todo.txt.theirs-*.bak"))
+
+
+def test_force_overwrites_conflict_and_keeps_backup(run, sample, edited_after_load):
+    synced = SAMPLE.replace("2026-11-02 Buy milk", "x 2026-11-08 2026-11-02 Buy milk").encode("utf-8")
+    edited_after_load(synced)
+    code, _, err = run("do", "2", "--force")
+    assert code == 0
+    (backup,) = backups(sample)
+    assert backup.read_bytes() == synced
+    assert "--force: overwrote the other version of todo.txt" in err and backup.name in err
+    assert "x 2026-11-09 2026-11-02 Buy milk +home @shop" in lines(sample)
+
+
+def test_force_before_the_command_and_without_conflict_makes_no_backup(run, sample):
+    code, _, err = run("--force", "add", "Plain")
+    assert code == 0 and backups(sample) == [] and "--force" not in err
+
+
+def test_force_still_merges_cleanly_without_backup(run, sample, edited_after_load):
+    edited_after_load((SAMPLE + "2026-11-09 Phone task\n").encode("utf-8"))
+    code, _, err = run("add", "Mine", "--force")
+    assert code == 0 and backups(sample) == [] and "merged with changes" in err
+    assert "2026-11-09 Phone task" in lines(sample)
+
+
+def test_force_after_a_sync_client_created_the_file(run, todo, monkeypatch):
+    from tasklane import cli
+
+    real_load = cli.Context.load
+
+    def load(self):
+        tf = real_load(self)
+        self.path.write_bytes(b"Created by sync\n")
+        return tf
+
+    monkeypatch.setattr(cli.Context, "load", load)
+    assert run("add", "Mine", "--force")[0] == 0
+    (backup,) = backups(todo)
+    assert backup.read_bytes() == b"Created by sync\n"
+    assert lines(todo) == ["2026-11-09 Mine"]
+
+
+def test_force_archive_conflict_writes_both_files(run, sample, edited_after_load):
+    edited = SAMPLE.replace("x 2026-11-08 2026-11-01 Old thing", "2026-11-01 Old thing").encode("utf-8")
+    edited_after_load(edited)
+    code, _, _ = run("archive", "--force")
+    assert code == 0
+    assert backups(sample)[0].read_bytes() == edited
+    assert (sample.parent / "done.txt").exists()
+
+
+def test_force_backup_names_do_not_collide(sample):
+    from tasklane.storage import TodoFile
+
+    names = set()
+    for i in range(3):
+        tf = TodoFile.load(sample)
+        sample.write_bytes(f"theirs {i}\n".encode())
+        tf.append_raw("ours")
+        tf.entries[0].raw = f"ours {i}"
+        tf.entries[0].task = None
+        tf.save(force=True)
+        names.add(tf.backup.name)
+    assert len(names) == 3 and len(backups(sample)) == 3

@@ -117,6 +117,7 @@ class TodoFile:
         # new number of every line whose number changed (None if it is gone).
         self.merged = False
         self.renumbered: dict[int, int | None] = {}
+        self.backup: Path | None = None  # set by a forced save that overwrote edits
 
     # -- loading -------------------------------------------------------------
     @classmethod
@@ -239,11 +240,30 @@ class TodoFile:
         if now.sha256 != self.loaded.sha256:
             raise FileChangedError(self.path, self._changed_detail(now))
 
-    def bytes_to_save(self) -> tuple[bytes, list[int | None] | None]:
+    def _backup_path(self) -> Path:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        base = self.path.with_name(f"{self.path.name}.theirs-{stamp}")
+        candidate, n = base.with_name(base.name + ".bak"), 1
+        while candidate.exists():
+            n += 1
+            candidate = base.with_name(f"{base.name}-{n}.bak")
+        return candidate
+
+    def bytes_to_save(self, force: bool = False) -> tuple[bytes, list[int | None] | None]:
         """What :meth:`save` would write now, merged with edits another program
         made since :meth:`load`, plus (after a merge) the new 0-based index of
         each of our lines. Raises :class:`FileChangedError` when the edits
-        overlap, or when the file was deleted or created by someone else."""
+        overlap, or when the file was deleted or created by someone else.
+        With *force* a conflict is not raised; our bytes are returned as they
+        are (a clean merge is still preferred)."""
+        try:
+            return self._bytes_to_save()
+        except FileChangedError:
+            if not force:
+                raise
+            return self.to_bytes(), None
+
+    def _bytes_to_save(self) -> tuple[bytes, list[int | None] | None]:
         data = self.to_bytes()
         if self.loaded is None:
             return data, None
@@ -259,15 +279,30 @@ class TodoFile:
             raise FileChangedError(self.path, detail, result.conflicts)
         return join_merged(result), result.ours_at
 
-    def save(self) -> None:
+    def save(self, force: bool = False) -> None:
         """Write the file atomically, merging edits made since :meth:`load`.
+
+        With *force*, edits that cannot be merged are overwritten, but only
+        after the file on disk was copied to a ``<name>.theirs-DATE-TIME.bak``
+        file beside it; :attr:`backup` holds that path (None otherwise).
 
         The check happens right before the atomic replace, so the remaining
         race window is a few milliseconds rather than the whole command. After
         a merge the entries are re-read from the merged bytes and
         :attr:`renumbered` says where lines moved.
         """
-        data, ours_at = self.bytes_to_save()
+        self.backup = None
+        try:
+            data, ours_at = self._bytes_to_save()
+        except FileChangedError:
+            if not force:
+                raise
+            data, ours_at = self.to_bytes(), None
+            theirs = _read_with_mtime(self.path)
+            if theirs is not None:
+                backup = self._backup_path()
+                atomic_write(backup, theirs[0])
+                self.backup = backup
         atomic_write(self.path, data)
         self.merged, self.renumbered = False, {}
         if ours_at is not None:
